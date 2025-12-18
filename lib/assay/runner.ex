@@ -1,0 +1,152 @@
+defmodule Assay.Runner do
+  @moduledoc """
+  Executes incremental Dialyzer runs directly via `:dialyzer.run/1`.
+  """
+
+  alias Assay.Config
+  alias Assay.Ignore
+
+  @type run_result :: :ok | :warnings
+
+  @spec run(Config.t(), keyword()) :: run_result
+  def run(%Config{} = config, _opts \\ []) do
+    Mix.Task.run("compile")
+    File.mkdir_p!(config.cache_dir)
+
+    options = dialyzer_options(config)
+
+    Mix.shell().info("""
+    Assay (incremental dialyzer)
+      apps: #{inspect(config.apps)}
+      warning_apps: #{inspect(config.warning_apps)}
+      plt: #{config.plt_path}
+      ignore_file: #{ignore_description(config)}
+    """)
+
+    warnings = run_dialyzer(options)
+
+    entries = Ignore.decorate(warnings, config.project_root)
+    {visible, ignored, ignore_path} = Ignore.filter(entries, config.ignore_file)
+
+    log_ignored(ignored, ignore_path, config.project_root)
+
+    Enum.each(visible, &IO.write(&1.text))
+
+    case visible do
+      [] -> :ok
+      _ -> :warnings
+    end
+  end
+
+  @doc false
+  @spec dialyzer_options(Config.t()) :: keyword()
+  def dialyzer_options(%Config{} = config) do
+    plt = String.to_charlist(config.plt_path)
+
+    [
+      {:analysis_type, :incremental},
+      {:check_plt, false},
+      {:from, :byte_code},
+      {:get_warnings, true},
+      {:report_mode, :quiet},
+      {:plts, [plt]},
+      {:output_plt, plt},
+      {:files_rec, charlist_paths(config, config.apps)},
+      {:warning_files_rec, charlist_paths(config, config.warning_apps)}
+    ]
+  end
+
+  defp charlist_paths(config, apps) do
+    apps
+    |> Enum.map(&format_app(&1, config))
+    |> Enum.map(&String.to_charlist/1)
+  end
+
+  defp run_dialyzer(opts) do
+    try do
+      :erlang.apply(:dialyzer, :run, [opts])
+    catch
+      {:dialyzer_error, msg} ->
+        raise Mix.Error, IO.iodata_to_binary(msg)
+    end
+  end
+
+  defp format_app(app, config) when is_atom(app) do
+    case :code.lib_dir(app) do
+      {:error, _} -> project_app_path(app, config)
+      path -> Path.join(IO.chardata_to_string(path), "ebin")
+    end
+  end
+
+  defp format_app(path, config) when is_binary(path) do
+    expand_path(path, config.project_root)
+  end
+
+  defp format_app(path, config) when is_list(path) do
+    path
+    |> IO.chardata_to_string()
+    |> format_app(config)
+  end
+
+  defp format_app(other, _config) do
+    raise Mix.Error, "Invalid app identifier: #{inspect(other)}"
+  end
+
+  defp project_app_path(app, %Config{build_lib_path: build_lib_path, project_root: root}) do
+    candidate =
+      [build_lib_path, Atom.to_string(app), "ebin"]
+      |> Path.join()
+      |> expand_path(root)
+
+    if File.dir?(candidate) do
+      candidate
+    else
+      raise Mix.Error,
+            "Assay could not locate the #{app} ebin under #{build_lib_path}; " <>
+              "ensure the project is compiled and listed in mix.exs"
+    end
+  end
+
+  defp expand_path(path, base) do
+    case Path.type(path) do
+      :absolute -> path
+      _ -> Path.expand(path, base)
+    end
+  end
+
+  defp log_ignored([], _path, _root), do: :ok
+
+  defp log_ignored(ignored, path, root) do
+    count = length(ignored)
+
+    Mix.shell().info(
+      "Ignored #{count} warning#{plural_suffix(count)} via #{relative_display(path, root)}"
+    )
+  end
+
+  defp plural_suffix(1), do: ""
+  defp plural_suffix(_), do: "s"
+
+  defp relative_display(nil, _root), do: "dialyzer_ignore.exs"
+
+  defp relative_display(path, root) do
+    case Path.relative_to(path, root) do
+      relative when relative != path -> relative
+      _ -> path
+    end
+  rescue
+    _ -> path
+  end
+
+  defp ignore_description(%Config{ignore_file: nil}), do: "none"
+
+  defp ignore_description(%Config{ignore_file: path, project_root: root}) do
+    description = relative_display(path, root)
+
+    if File.exists?(path) do
+      description
+    else
+      "#{description} (missing)"
+    end
+  end
+end
