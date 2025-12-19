@@ -5,37 +5,78 @@ defmodule Assay.Runner do
 
   alias Assay.Config
   alias Assay.Ignore
+  alias Assay.Formatter
 
   @type run_result :: :ok | :warnings
 
   @spec run(Config.t(), keyword()) :: run_result
-  def run(%Config{} = config, _opts \\ []) do
+  def run(%Config{} = config, opts \\ []) do
+    quiet? = Keyword.get(opts, :quiet, false)
+
+    unless quiet? do
+      Mix.shell().info("""
+      Assay (incremental dialyzer)
+        apps: #{inspect(config.apps)}
+        warning_apps: #{inspect(config.warning_apps)}
+        plt: #{config.plt_path}
+        ignore_file: #{ignore_description(config)}
+      """)
+    end
+
+    result = analyze(config, opts)
+
+    unless quiet? do
+      log_ignored(result.ignored, result.ignore_path, config.project_root)
+    end
+
+    formats = opts[:formats] || [:text]
+
+    Enum.each(formats, fn format ->
+      formatter_opts = [
+        project_root: config.project_root,
+        pretty_erlang: format == :elixir,
+        color?: color_enabled?(format)
+      ]
+
+      Formatter.format(result.warnings, format, formatter_opts)
+      |> Enum.each(&IO.puts/1)
+    end)
+
+    result.status
+  end
+
+  @doc """
+  Runs incremental Dialyzer and returns structured diagnostics without printing.
+  """
+  @spec analyze(Config.t(), keyword()) ::
+          %{
+            status: run_result,
+            warnings: [Ignore.entry()],
+            ignored: [Ignore.entry()],
+            ignore_path: binary() | nil,
+            options: keyword()
+          }
+  def analyze(%Config{} = config, opts \\ []) do
     Mix.Task.run("compile")
     File.mkdir_p!(config.cache_dir)
 
     options = dialyzer_options(config)
 
-    Mix.shell().info("""
-    Assay (incremental dialyzer)
-      apps: #{inspect(config.apps)}
-      warning_apps: #{inspect(config.warning_apps)}
-      plt: #{config.plt_path}
-      ignore_file: #{ignore_description(config)}
-    """)
+    maybe_print_config(opts, config, options)
 
     warnings = run_dialyzer(options)
 
     entries = Ignore.decorate(warnings, config.project_root)
     {visible, ignored, ignore_path} = Ignore.filter(entries, config.ignore_file)
+    status = if visible == [], do: :ok, else: :warnings
 
-    log_ignored(ignored, ignore_path, config.project_root)
-
-    Enum.each(visible, &IO.write(&1.text))
-
-    case visible do
-      [] -> :ok
-      _ -> :warnings
-    end
+    %{
+      status: status,
+      warnings: visible,
+      ignored: ignored,
+      ignore_path: ignore_path,
+      options: options
+    }
   end
 
   @doc false
@@ -92,6 +133,14 @@ defmodule Assay.Runner do
     raise Mix.Error, "Invalid app identifier: #{inspect(other)}"
   end
 
+  defp color_enabled?(:elixir) do
+    case System.get_env("MIX_ANSI_ENABLED") do
+      "false" -> false
+      _ -> true
+    end
+  end
+  defp color_enabled?(_), do: false
+
   defp project_app_path(app, %Config{build_lib_path: build_lib_path, project_root: root}) do
     candidate =
       [build_lib_path, Atom.to_string(app), "ebin"]
@@ -147,6 +196,29 @@ defmodule Assay.Runner do
       description
     else
       "#{description} (missing)"
+    end
+  end
+
+  defp maybe_print_config(opts, config, options) do
+    if Keyword.get(opts, :print_config, false) do
+      config_snapshot = %{
+        project_root: config.project_root,
+        apps: config.apps,
+        warning_apps: config.warning_apps,
+        cache_dir: config.cache_dir,
+        plt_path: config.plt_path,
+        ignore_file: config.ignore_file
+      }
+
+      printable = inspect(options, limit: :infinity, pretty: true, charlists: :as_lists)
+
+      Mix.shell().info("""
+      Assay configuration (from mix.exs):
+      #{inspect(config_snapshot, pretty: true, limit: :infinity)}
+
+      Effective Dialyzer options:
+      #{printable}
+      """)
     end
   end
 end

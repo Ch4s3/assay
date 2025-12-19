@@ -8,6 +8,7 @@ defmodule Assay.Ignore do
           path: String.t() | nil,
           relative_path: String.t() | nil,
           line: integer() | nil,
+          column: integer() | nil,
           code: atom()
         }
 
@@ -92,6 +93,7 @@ defmodule Assay.Ignore do
       path: absolute,
       relative_path: relative,
       line: extract_line(loc),
+      column: extract_column(loc),
       code: code
     }
   end
@@ -149,6 +151,10 @@ defmodule Assay.Ignore do
   defp extract_line({line, _col, _info}) when is_integer(line), do: line
   defp extract_line(line) when is_integer(line), do: line
   defp extract_line(_), do: nil
+
+  defp extract_column({_line, column}) when is_integer(column), do: column
+  defp extract_column({_line, column, _info}) when is_integer(column), do: column
+  defp extract_column(_), do: nil
 
   defp ignored?(entry, rules) do
     Enum.any?(rules, &rule_matches?(&1, entry))

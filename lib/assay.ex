@@ -14,8 +14,7 @@ defmodule Assay do
   """
   @spec run(keyword()) :: Runner.run_result()
   def run(opts \\ []) do
-    opts
-    |> Config.from_mix_project()
-    |> Runner.run()
+    config = Config.from_mix_project(opts)
+    Runner.run(config, opts)
   end
 end

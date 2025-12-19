@@ -23,7 +23,10 @@ defmodule Assay.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:file_system, "~> 1.1"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:igniter, "~> 0.6", optional: true},
+      {:erlex, "~> 0.2", optional: true}
     ]
   end
 
