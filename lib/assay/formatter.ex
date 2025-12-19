@@ -44,10 +44,10 @@ defmodule Assay.Formatter do
     [
       "┌─ warning: #{location}",
       code_line,
-      snippet || "│",
-      "└─ #{warning.headline}"
+      snippet || "│"
     ]
     |> Kernel.++(format_detail_lines(warning.details, opts))
+    |> Kernel.++(["└─ #{warning.headline}"])
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
@@ -137,8 +137,8 @@ defmodule Assay.Formatter do
     |> strip_common_indent()
     |> highlight_detail_lines()
     |> Enum.map(fn
-      "" -> "   "
-      line -> "   " <> line
+      "" -> "│"
+      line -> "│ " <> line
     end)
   end
 

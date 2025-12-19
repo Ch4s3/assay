@@ -89,10 +89,10 @@ defmodule Assay.FormatterTest do
     ┌─ warning: lib/bar.ex:10
     │   (failing call)
     │
+    │ (actual args)
+    │ -> will never return since it differs:
+    │ (expected args)
     └─ The call 'Elixir.Sample':foo/1
-       (actual args)
-       -> will never return since it differs:
-       (expected args)
     """
 
     assert result == String.trim_trailing(expected)

@@ -42,9 +42,12 @@ defmodule Assay.Formatter.Warning do
         diff_lines = diff_lines(expected_lines, actual_lines, opts)
         color? = Keyword.get(opts, :color?, false)
 
+        reason_block = reason_block(reason_line)
+
         details =
           [
             ["Call: #{call}"],
+            reason_block,
             [""],
             value_block("Expected (success typing)", expected_lines,
               color?: color?,
@@ -55,8 +58,7 @@ defmodule Assay.Formatter.Warning do
               color?: color?,
               color: :green
             ),
-            diff_section(diff_lines, color?: color?),
-            reason_line
+            diff_section(diff_lines, color?: color?)
           ]
           |> List.flatten()
           |> Enum.reject(&is_nil/1)
@@ -75,6 +77,22 @@ defmodule Assay.Formatter.Warning do
   end
 
   defp failing_call(_entry, result, _relative, _opts), do: result
+
+  defp reason_block(nil), do: []
+
+  defp reason_block(line) do
+    [
+      "",
+      "Reason:",
+      "  #{clean_reason(line)}"
+    ]
+  end
+
+  defp clean_reason(line) do
+    line
+    |> String.trim()
+    |> String.trim_leading("-> ")
+  end
 
   defp default_result(entry, relative) do
     base =
@@ -168,8 +186,6 @@ defmodule Assay.Formatter.Warning do
     |> render_binaries()
     |> String.trim()
     |> String.split("\n", trim: true)
-  rescue
-    _ -> value |> to_string_maybe(value) |> String.split("\n", trim: true)
   end
 
   defp to_string_maybe(binary, _original) when is_binary(binary), do: binary
