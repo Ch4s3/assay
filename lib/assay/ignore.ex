@@ -138,7 +138,7 @@ defmodule Assay.Ignore do
   end
 
   defp format_warning_text(warning) do
-    :erlang.apply(:dialyzer, :format_warning, [warning, [filename_opt: :fullpath]])
+    apply(dialyzer_module(), :format_warning, [warning, [filename_opt: :fullpath]])
     |> IO.iodata_to_binary()
   end
 
@@ -236,4 +236,8 @@ defmodule Assay.Ignore do
   defp maybe_to_string(value) when is_list(value), do: List.to_string(value)
   defp maybe_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp maybe_to_string(_), do: nil
+
+  defp dialyzer_module do
+    Application.get_env(:assay, :dialyzer_module, :dialyzer)
+  end
 end

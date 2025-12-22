@@ -141,20 +141,24 @@ defmodule Assay.MCP do
 
     {reply, daemon_state, _action} = Daemon.handle_rpc(request, state.daemon)
 
-    result = reply["result"]
+    case reply do
+      %{"error" => error} ->
+        {:error, error["code"], error["message"], error["data"], %{state | daemon: daemon_state}}
 
-    content = [
-      %{
-        "type" => "json",
-        "json" => result
-      }
-    ]
+      %{"result" => result} ->
+        content = [
+          %{
+            "type" => "json",
+            "json" => result
+          }
+        ]
 
-    tool_response =
-      %{"content" => content}
-      |> maybe_put_tool_call_id(Map.get(params, "toolCallId"))
+        tool_response =
+          %{"content" => content}
+          |> maybe_put_tool_call_id(Map.get(params, "toolCallId"))
 
-    {:ok, tool_response, %{state | daemon: daemon_state}}
+        {:ok, tool_response, %{state | daemon: daemon_state}}
+    end
   rescue
     error ->
       {:error, -32_000, Exception.message(error), %{"type" => inspect(error.__struct__)}, state}

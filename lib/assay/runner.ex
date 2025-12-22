@@ -84,7 +84,7 @@ defmodule Assay.Runner do
   def dialyzer_options(%Config{} = config) do
     plt = String.to_charlist(config.plt_path)
 
-    [
+    base_opts = [
       {:analysis_type, :incremental},
       {:check_plt, false},
       {:from, :byte_code},
@@ -95,6 +95,11 @@ defmodule Assay.Runner do
       {:files_rec, charlist_paths(config, config.apps)},
       {:warning_files_rec, charlist_paths(config, config.warning_apps)}
     ]
+
+    case config.warnings do
+      [] -> base_opts
+      warnings -> base_opts ++ [{:warnings, warnings}]
+    end
   end
 
   defp charlist_paths(config, apps) do
@@ -105,7 +110,7 @@ defmodule Assay.Runner do
 
   defp run_dialyzer(opts) do
     try do
-      :erlang.apply(:dialyzer, :run, [opts])
+      apply(dialyzer_runner(), :run, [opts])
     catch
       {:dialyzer_error, msg} ->
         raise Mix.Error, IO.iodata_to_binary(msg)
@@ -139,6 +144,7 @@ defmodule Assay.Runner do
       _ -> true
     end
   end
+
   defp color_enabled?(_), do: false
 
   defp project_app_path(app, %Config{build_lib_path: build_lib_path, project_root: root}) do
@@ -220,5 +226,9 @@ defmodule Assay.Runner do
       #{printable}
       """)
     end
+  end
+
+  defp dialyzer_runner do
+    Application.get_env(:assay, :dialyzer_runner_module, :dialyzer)
   end
 end
