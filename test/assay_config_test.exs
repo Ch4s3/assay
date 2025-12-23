@@ -3,6 +3,8 @@ defmodule Assay.ConfigTest do
 
   alias Assay.Config
 
+  @plt_filename Assay.Config.plt_filename()
+
   @moduletag :tmp_dir
 
   setup context do
@@ -22,7 +24,7 @@ defmodule Assay.ConfigTest do
     assert Enum.sort(config.apps) == Enum.sort([:demo, :erlex, :igniter, :rewrite])
     assert config.warning_apps == [:demo_warn]
     assert config.cache_dir == Path.join(tmp_dir, "_build/assay")
-    assert config.plt_path == Path.join(tmp_dir, "_build/assay/assay.incremental.plt")
+    assert config.plt_path == Path.join(tmp_dir, "_build/assay/#{@plt_filename}")
     assert config.elixir_lib_path == :code.lib_dir(:elixir) |> to_string()
 
     assert config.ignore_file ==

@@ -54,7 +54,10 @@ defmodule Mix.Tasks.AssayTest do
   test "run exits with shutdown status when warnings are reported" do
     Process.put(:runner_stub_status, :warnings)
 
-    assert catch_exit(Assay.run([])) == {:shutdown, 1}
+    capture_io(fn ->
+      assert catch_exit(Assay.run([])) == {:shutdown, 1}
+    end)
+
     assert_received {:runner_called, _config, [print_config: false, formats: [:text]]}
   end
 

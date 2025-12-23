@@ -9,13 +9,14 @@ defmodule Assay.TestSupport.ConfigStub do
     apps = Keyword.get(opts, :apps, [:stub])
     warning_apps = Keyword.get(opts, :warning_apps, apps)
     cache_dir = Path.join(root, "_build/assay")
+    plt_filename = Config.plt_filename()
 
     %Config{
       apps: apps,
       warning_apps: warning_apps,
       project_root: root,
       cache_dir: cache_dir,
-      plt_path: Path.join(cache_dir, "assay.incremental.plt"),
+      plt_path: Path.join(cache_dir, plt_filename),
       build_lib_path: Path.join(root, "_build/dev/lib"),
       elixir_lib_path: Path.join(root, ".elixir"),
       ignore_file: Path.join(root, "dialyzer_ignore.exs"),

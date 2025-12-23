@@ -62,7 +62,7 @@ defmodule Assay.Config do
 
     project_root = Keyword.get(opts, :project_root, File.cwd!())
     cache_dir = Keyword.get(opts, :cache_dir, Path.join(project_root, "_build/assay"))
-    plt_path = Keyword.get(opts, :plt_path, Path.join(cache_dir, "assay.incremental.plt"))
+    plt_path = Keyword.get(opts, :plt_path, default_plt_path(cache_dir))
     build_lib_path = Keyword.get(opts, :build_lib_path, default_build_lib_path(project_root))
     elixir_lib_path = Keyword.get(opts, :elixir_lib_path, default_elixir_lib_path())
     ignore_file = Keyword.get(dialyzer_config, :ignore_file, "dialyzer_ignore.exs")
@@ -110,6 +110,15 @@ defmodule Assay.Config do
   defp default_elixir_lib_path do
     :code.lib_dir(:elixir)
     |> to_string()
+  end
+
+  defp default_plt_path(cache_dir) do
+    Path.join(cache_dir, plt_filename())
+  end
+
+  @doc false
+  def plt_filename do
+    "assay-elixir_#{System.version()}-otp_#{System.otp_release()}.incremental.plt"
   end
 
   defp include_optional_apps(apps) do

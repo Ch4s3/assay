@@ -6,6 +6,8 @@ defmodule Assay.RunnerTest do
   alias Assay.Config
   alias Assay.Runner
 
+  @plt_filename Assay.Config.plt_filename()
+
   setup do
     Application.put_env(:assay, :dialyzer_module, __MODULE__.DialyzerFormatStub)
     Application.put_env(:assay, :dialyzer_runner_module, __MODULE__.DialyzerStub)
@@ -58,7 +60,7 @@ defmodule Assay.RunnerTest do
         project_root: tmp_dir,
         build_lib_path: build_lib_path,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         apps: [:sample_proj],
         warning_apps: [:sample_proj]
       )
@@ -78,7 +80,7 @@ defmodule Assay.RunnerTest do
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
         apps: [relative_path],
         warning_apps: [relative_path]
@@ -98,7 +100,7 @@ defmodule Assay.RunnerTest do
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
         apps: [to_charlist("apps/char/ebin")],
         warning_apps: [to_charlist("apps/char/ebin")]
@@ -155,7 +157,7 @@ defmodule Assay.RunnerTest do
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
         ignore_file: ignore_file
       )
@@ -175,7 +177,7 @@ defmodule Assay.RunnerTest do
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
         ignore_file: Path.join(tmp_dir, "dialyzer_ignore.exs")
       )
@@ -196,7 +198,7 @@ defmodule Assay.RunnerTest do
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
         ignore_file: nil
       )
@@ -226,7 +228,7 @@ defmodule Assay.RunnerTest do
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
         ignore_file: ignore_file
       )
@@ -249,7 +251,7 @@ defmodule Assay.RunnerTest do
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
         ignore_file: missing
       )
@@ -270,7 +272,7 @@ defmodule Assay.RunnerTest do
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
-        plt_path: Path.join(tmp_dir, "tmp/assay/assay.incremental.plt"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
         ignore_file: nil
       )
@@ -295,7 +297,7 @@ defmodule Assay.RunnerTest do
       warning_apps: [:kernel],
       project_root: project_root,
       cache_dir: Path.join(project_root, "tmp/assay"),
-      plt_path: Path.join(project_root, "tmp/assay/assay.incremental.plt"),
+      plt_path: Path.join(project_root, "tmp/assay/#{@plt_filename}"),
       build_lib_path: Path.join(project_root, "_build/dev/lib"),
       elixir_lib_path: :code.lib_dir(:elixir) |> to_string(),
       ignore_file: nil,

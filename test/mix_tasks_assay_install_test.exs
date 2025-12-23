@@ -68,6 +68,7 @@ defmodule Mix.Tasks.Assay.InstallTest do
         }
       )
       |> Igniter.assign(:assay_detected_apps, @detected)
+      |> put_option(:all_apps, false)
       |> Install.igniter()
       |> IgniterTest.apply_igniter!()
 
