@@ -17,7 +17,8 @@ defmodule Assay.Config do
     :elixir_lib_path,
     :ignore_file
   ]
-  defstruct @enforce_keys ++ [warnings: []]
+  defstruct @enforce_keys ++
+              [warnings: [], app_sources: [], warning_app_sources: [], discovery_info: %{}]
 
   @optional_apps [
     {:erlex, :"Elixir.Erlex"},
@@ -34,7 +35,10 @@ defmodule Assay.Config do
           build_lib_path: binary(),
           elixir_lib_path: binary(),
           ignore_file: binary() | nil,
-          warnings: [atom()]
+          warnings: [atom()],
+          app_sources: list(),
+          warning_app_sources: list(),
+          discovery_info: map()
         }
 
   @doc """
@@ -53,18 +57,26 @@ defmodule Assay.Config do
       |> Keyword.get(:assay, [])
       |> Keyword.get(:dialyzer, [])
 
-    apps =
-      dialyzer_config
-      |> fetch_list!(:apps)
-      |> include_optional_apps()
-
-    warning_apps = fetch_list!(dialyzer_config, :warning_apps)
-
     project_root = Keyword.get(opts, :project_root, File.cwd!())
     cache_dir = Keyword.get(opts, :cache_dir, Path.join(project_root, "_build/assay"))
     plt_path = Keyword.get(opts, :plt_path, default_plt_path(cache_dir))
     build_lib_path = Keyword.get(opts, :build_lib_path, default_build_lib_path(project_root))
     elixir_lib_path = Keyword.get(opts, :elixir_lib_path, default_elixir_lib_path())
+
+    context =
+      build_context(project_config,
+        dependency_apps: Keyword.get(opts, :dependency_apps),
+        build_lib_path: build_lib_path
+      )
+
+    raw_apps = list_override(opts, dialyzer_config, :apps)
+    raw_warning_apps = list_override(opts, dialyzer_config, :warning_apps)
+
+    {apps_base, app_sources} = resolve_app_selectors(raw_apps, context)
+    {warning_apps, warning_sources} = resolve_app_selectors(raw_warning_apps, context)
+
+    apps = include_optional_apps(apps_base)
+
     ignore_file = Keyword.get(dialyzer_config, :ignore_file, "dialyzer_ignore.exs")
     warnings = list_option(dialyzer_config, :warnings, [])
     normalized_ignore = normalize_ignore_file(ignore_file, project_root)
@@ -78,7 +90,14 @@ defmodule Assay.Config do
       build_lib_path: build_lib_path,
       elixir_lib_path: elixir_lib_path,
       ignore_file: normalized_ignore,
-      warnings: warnings
+      warnings: warnings,
+      app_sources: app_sources,
+      warning_app_sources: warning_sources,
+      discovery_info: %{
+        project_apps: context.project_apps,
+        dependency_apps: context.dependency_apps,
+        base_apps: context.base_apps
+      }
     }
   end
 
@@ -142,4 +161,166 @@ defmodule Assay.Config do
       other -> raise_invalid_value(key, other)
     end
   end
+
+  defp list_override(opts, dialyzer_config, key) do
+    case Keyword.fetch(opts, key) do
+      {:ok, value} -> to_list(value)
+      :error -> fetch_list!(dialyzer_config, key)
+    end
+  end
+
+  defp to_list(value) when is_list(value), do: value
+  defp to_list(value), do: [value]
+
+  defp build_context(project_config, opts) do
+    project_apps = project_apps(project_config)
+    dependency_apps = Keyword.get(opts, :dependency_apps, default_dependency_apps(project_apps))
+
+    %{
+      project_apps: project_apps,
+      current_app: current_app(project_config, project_apps),
+      dependency_apps: dependency_apps,
+      base_apps: base_apps()
+    }
+  end
+
+  defp project_apps(_project_config) do
+    case Mix.Project.apps_paths() do
+      paths when is_map(paths) ->
+        paths
+        |> Map.keys()
+        |> Enum.sort()
+
+      _ ->
+        app = Mix.Project.config()[:app]
+        app |> List.wrap() |> Enum.reject(&is_nil/1)
+    end
+  end
+
+  defp current_app(project_config, project_apps) do
+    cond do
+      app = project_config[:app] -> app
+      project_apps != [] -> hd(project_apps)
+      true -> nil
+    end
+  end
+
+  defp default_dependency_apps(project_apps) do
+    Mix.Dep.cached()
+    |> Enum.map(& &1.app)
+    |> Enum.reject(&(&1 in project_apps))
+  rescue
+    _ -> []
+  end
+
+  defp base_apps do
+    [:logger, :kernel, :stdlib, :elixir, :erts]
+  end
+
+  defp resolve_app_selectors(values, context) do
+    values
+    |> Enum.reduce({[], []}, fn value, {acc, meta} ->
+      case expand_selector(value, context) do
+        {:selector, label, apps} ->
+          {acc ++ apps, meta ++ [%{selector: label, apps: apps}]}
+
+        {:literal, app} ->
+          {acc ++ [app], meta}
+      end
+    end)
+    |> then(fn {apps, meta} -> {Enum.uniq(apps), meta} end)
+  end
+
+  defp expand_selector(value, context) do
+    case normalize_selector(value) do
+      {:selector, :project} -> expand_project_selector(context)
+      {:selector, :project_plus_deps} -> expand_project_plus_deps_selector(context)
+      {:selector, :current} -> expand_current_selector(context)
+      {:selector, :current_plus_deps} -> expand_current_plus_deps_selector(context)
+      {:literal, literal} -> {:literal, literal}
+    end
+  end
+
+  defp expand_project_selector(context) do
+    apps = context.project_apps
+    ensure_apps!(apps, :project)
+    {:selector, :project, apps}
+  end
+
+  defp expand_project_plus_deps_selector(context) do
+    apps = Enum.uniq(context.project_apps ++ context.dependency_apps ++ context.base_apps)
+    ensure_apps!(apps, :project_plus_deps)
+    {:selector, :project_plus_deps, apps}
+  end
+
+  defp expand_current_selector(context) do
+    case context.current_app do
+      nil -> raise Mix.Error, "Unable to resolve current app selector (no :app in mix.exs)"
+      app -> {:selector, :current, [app]}
+    end
+  end
+
+  defp expand_current_plus_deps_selector(context) do
+    case context.current_app do
+      nil ->
+        raise Mix.Error, "Unable to resolve current+deps selector (no :app in mix.exs)"
+
+      app ->
+        apps = Enum.uniq([app | context.dependency_apps] ++ context.base_apps)
+        {:selector, :current_plus_deps, apps}
+    end
+  end
+
+  defp ensure_apps!([], selector) do
+    raise Mix.Error, "Selector #{selector} resolved to an empty list of applications"
+  end
+
+  defp ensure_apps!(_, _), do: :ok
+
+  defp normalize_selector(value) when is_list(value) do
+    value
+    |> List.to_string()
+    |> normalize_selector()
+  end
+
+  defp normalize_selector(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    downcased = String.downcase(trimmed)
+
+    cond do
+      downcased in ["project", "project_apps"] -> {:selector, :project}
+      downcased in ["project+deps", "project_plus_deps"] -> {:selector, :project_plus_deps}
+      downcased == "current" -> {:selector, :current}
+      downcased in ["current+deps", "current_plus_deps"] -> {:selector, :current_plus_deps}
+      true -> {:literal, literal_app(trimmed)}
+    end
+  end
+
+  defp normalize_selector(value) when is_atom(value) do
+    case value do
+      :project -> {:selector, :project}
+      :project_plus_deps -> {:selector, :project_plus_deps}
+      :"project+deps" -> {:selector, :project_plus_deps}
+      :current -> {:selector, :current}
+      :current_plus_deps -> {:selector, :current_plus_deps}
+      :"current+deps" -> {:selector, :current_plus_deps}
+      other -> {:literal, other}
+    end
+  end
+
+  defp normalize_selector(value), do: {:literal, literal_app(value)}
+
+  defp literal_app(value) when is_atom(value), do: value
+
+  defp literal_app(value) when is_binary(value) do
+    if String.contains?(value, "/") or String.contains?(value, "\\") do
+      value
+    else
+      String.to_atom(value)
+    end
+  end
+
+  defp literal_app(value) when is_list(value), do: List.to_string(value)
+
+  defp literal_app(value), do: value
 end

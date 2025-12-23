@@ -173,13 +173,17 @@ defmodule Assay.RunnerTest do
   test "analyze can print derived configuration", %{tmp_dir: tmp_dir} do
     Application.put_env(:assay, :dialyzer_stub_warnings, [])
 
+    selector_meta = [%{selector: :project_plus_deps, apps: [:kernel]}]
+
     config =
       config_fixture(
         project_root: tmp_dir,
         cache_dir: Path.join(tmp_dir, "tmp/assay"),
         plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
         build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
-        ignore_file: Path.join(tmp_dir, "dialyzer_ignore.exs")
+        ignore_file: Path.join(tmp_dir, "dialyzer_ignore.exs"),
+        app_sources: selector_meta,
+        warning_app_sources: [%{selector: :project, apps: [:kernel]}]
       )
 
     output =
@@ -189,6 +193,12 @@ defmodule Assay.RunnerTest do
 
     assert output =~ "Assay configuration (from mix.exs)"
     assert output =~ "Effective Dialyzer options:"
+    assert output =~ "project apps + dependencies + base OTP libraries"
+    assert output =~ "Mix.Project.apps_paths/0"
+    refute output =~ ":plts"
+    refute output =~ ":output_plt"
+    refute output =~ ":files_rec"
+    refute output =~ ":warning_files_rec"
   end
 
   test "analyze raises when dialyzer reports errors", %{tmp_dir: tmp_dir} do
@@ -301,7 +311,14 @@ defmodule Assay.RunnerTest do
       build_lib_path: Path.join(project_root, "_build/dev/lib"),
       elixir_lib_path: :code.lib_dir(:elixir) |> to_string(),
       ignore_file: nil,
-      warnings: []
+      warnings: [],
+      app_sources: [],
+      warning_app_sources: [],
+      discovery_info: %{
+        project_apps: [:kernel],
+        dependency_apps: [],
+        base_apps: [:logger, :kernel, :stdlib, :elixir, :erts]
+      }
     }
 
     base

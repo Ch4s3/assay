@@ -20,7 +20,15 @@ defmodule Assay.TestSupport.ConfigStub do
       build_lib_path: Path.join(root, "_build/dev/lib"),
       elixir_lib_path: Path.join(root, ".elixir"),
       ignore_file: Path.join(root, "dialyzer_ignore.exs"),
-      warnings: Keyword.get(opts, :warnings, [])
+      warnings: Keyword.get(opts, :warnings, []),
+      app_sources: Keyword.get(opts, :app_sources, []),
+      warning_app_sources: Keyword.get(opts, :warning_app_sources, []),
+      discovery_info:
+        Keyword.get(opts, :discovery_info, %{
+          project_apps: apps,
+          dependency_apps: [],
+          base_apps: []
+        })
     }
   end
 end

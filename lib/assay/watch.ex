@@ -89,55 +89,65 @@ defmodule Assay.Watch do
 
   defp loop(state, ref) do
     receive do
-      {:file_event, _pid, {path, _events}} ->
-        loop(maybe_schedule(path, state), ref)
-
-      {:file_event, _pid, :stop} ->
-        loop(state, ref)
-
-      {:file_event, _pid, path} ->
-        loop(maybe_schedule(path, state), ref)
+      {:file_event, _pid, event} ->
+        loop(handle_file_event(event, state), ref)
 
       :run ->
         loop(execute_run_async(state, "Change detected"), ref)
 
       {task_ref, result} when is_reference(task_ref) ->
-        case state.analysis_task do
-          ^task_ref ->
-            case result do
-              :ok -> Mix.shell().info("[Assay] No warnings")
-              :warnings -> Mix.shell().info("[Assay] Warnings detected")
-              :error -> Mix.shell().error("[Assay] Analysis failed")
-            end
-
-            # Clear the running flag and task reference
-            new_state = %{state | running: false, analysis_task: nil}
-            loop(new_state, ref)
-
-          _ ->
-            loop(state, ref)
-        end
+        loop(handle_task_result(task_ref, result, state), ref)
 
       {:DOWN, ^ref, :process, _pid, reason} ->
         Mix.shell().error("[Assay] File watcher process crashed: #{inspect(reason)}")
         exit({:shutdown, :watcher_crashed})
 
       {:DOWN, task_ref, :process, _pid, _reason} ->
-        case state.analysis_task do
-          ^task_ref ->
-            # Task completed normally (DOWN message after result)
-            new_state = %{state | running: false, analysis_task: nil}
-            loop(new_state, ref)
-
-          _ ->
-            loop(state, ref)
-        end
+        loop(handle_task_down(task_ref, state), ref)
 
       _other ->
         # Ignore unexpected messages (could be from other processes)
         loop(state, ref)
     end
   end
+
+  defp handle_file_event({path, _events}, state), do: maybe_schedule(path, state)
+  defp handle_file_event(:stop, state), do: state
+  defp handle_file_event(path, state), do: maybe_schedule(path, state)
+
+  defp handle_task_result(task_ref, result, state) do
+    case state.analysis_task do
+      nil ->
+        state
+
+      stored_ref ->
+        if refs_equal?(stored_ref, task_ref) do
+          log_task_result(result)
+          %{state | running: false, analysis_task: nil}
+        else
+          state
+        end
+    end
+  end
+
+  defp handle_task_down(task_ref, state) do
+    case state.analysis_task do
+      nil ->
+        state
+
+      stored_ref ->
+        if refs_equal?(stored_ref, task_ref) do
+          # Task completed normally (DOWN message after result)
+          %{state | running: false, analysis_task: nil}
+        else
+          state
+        end
+    end
+  end
+
+  defp log_task_result(:ok), do: Mix.shell().info("[Assay] No warnings")
+  defp log_task_result(:warnings), do: Mix.shell().info("[Assay] Warnings detected")
+  defp log_task_result(:error), do: Mix.shell().error("[Assay] Analysis failed")
 
   defp execute_run(state, reason) do
     cancel_timer(state.timer)
@@ -342,5 +352,12 @@ defmodule Assay.Watch do
         Process.exit(watcher, :normal)
       end
     end
+  end
+
+  # Compare Task.ref() (opaque) with reference() using hash comparison
+  # to avoid Dialyzer warnings about opaque type equality.
+  # Hash collisions are extremely unlikely for references.
+  defp refs_equal?(ref1, ref2) do
+    :erlang.phash2(ref1) == :erlang.phash2(ref2)
   end
 end

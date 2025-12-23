@@ -212,12 +212,19 @@ defmodule Assay.Runner do
         ignore_file: config.ignore_file
       }
 
-      printable = inspect(options, limit: :infinity, pretty: true, charlists: :as_lists)
+      printable =
+        options
+        |> redact_print_config_options()
+        |> inspect(limit: :infinity, pretty: true, charlists: :as_lists)
+
+      selector_block =
+        build_selector_block(config.app_sources, config.warning_app_sources)
+
+      discovery_block = discovery_summary(config.discovery_info)
 
       Mix.shell().info("""
       Assay configuration (from mix.exs):
-      #{inspect(config_snapshot, pretty: true, limit: :infinity)}
-
+      #{inspect(config_snapshot, pretty: true, limit: :infinity)}#{selector_block}#{discovery_block}
       Effective Dialyzer options:
       #{printable}
       """)
@@ -227,4 +234,89 @@ defmodule Assay.Runner do
   defp dialyzer_runner do
     Application.get_env(:assay, :dialyzer_runner_module, :dialyzer)
   end
+
+  defp redact_print_config_options(options) do
+    Enum.reject(options, fn
+      {key, _value} when key in [:plts, :output_plt, :files_rec, :warning_files_rec] ->
+        true
+
+      _ ->
+        false
+    end)
+  end
+
+  defp build_selector_block(app_sources, warning_sources) do
+    selector_details =
+      [
+        selector_info("apps selectors", app_sources),
+        selector_info("warning_apps selectors", warning_sources)
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
+
+    if selector_details == "" do
+      ""
+    else
+      "\n#{selector_details}\n"
+    end
+  end
+
+  defp selector_info(_label, []), do: nil
+
+  defp selector_info(label, selectors) do
+    entries =
+      selectors
+      |> Enum.map_join("\n", fn %{selector: selector, apps: apps} ->
+        explanation =
+          selector
+          |> selector_explanation(apps)
+          |> case do
+            nil -> ""
+            text -> "\n      #{text}"
+          end
+
+        "    #{selector} => #{inspect(apps)}#{explanation}"
+      end)
+
+    "#{label}:\n#{entries}"
+  end
+
+  defp selector_explanation(selector, apps) do
+    count = length(apps)
+    summary = "#{count} app#{plural_suffix(count)}"
+
+    case selector do
+      :project ->
+        "#{summary} discovered via Mix.Project.apps_paths/0"
+
+      :project_plus_deps ->
+        "#{summary} (project apps + dependencies + base OTP libraries)"
+
+      :current ->
+        "#{summary} for the current Mix project (:app)"
+
+      :current_plus_deps ->
+        "#{summary} (current app + dependencies + base OTP libraries)"
+
+      other when is_binary(other) ->
+        "#{summary} resolved from selector #{other}"
+
+      _ ->
+        nil
+    end
+  end
+
+  defp discovery_summary(%{project_apps: proj, dependency_apps: deps, base_apps: base}) do
+    sections =
+      [
+        {"project apps (Mix.Project.apps_paths())", proj},
+        {"dependency apps (mix deps)", deps},
+        {"base apps (included automatically)", base}
+      ]
+      |> Enum.map_join("\n", fn {label, apps} -> "  #{label}: #{inspect(apps)}" end)
+
+    "\nDiscovery sources:\n#{sections}\n"
+  end
+
+  defp discovery_summary(_), do: ""
 end
