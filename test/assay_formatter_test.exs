@@ -515,6 +515,35 @@ defmodule Assay.FormatterTest do
     assert payload["location"] == "lib/foo.ex:5:1"
   end
 
+  test "sarif formatter emits a valid log", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "lib/foo.ex")
+
+    entries = [
+      %{
+        text: "warning text",
+        match_text: "warning text",
+        path: path,
+        relative_path: "lib/foo.ex",
+        line: 5,
+        column: 2,
+        code: :warn_return_no_exit
+      }
+    ]
+
+    [sarif_json] = Formatter.format(entries, :sarif, project_root: tmp_dir)
+    {:ok, sarif} = JSON.decode(sarif_json)
+
+    assert sarif["version"] == "2.1.0"
+    [run] = sarif["runs"]
+    [result] = run["results"]
+    assert result["ruleId"] == "warn_return_no_exit"
+    assert result["level"] == "warning"
+    [%{"physicalLocation" => location}] = result["locations"]
+    assert location["artifactLocation"]["uri"] == "lib/foo.ex"
+    assert location["region"]["startLine"] == 5
+    assert location["region"]["startColumn"] == 2
+  end
+
   defp find_line(text, needle) do
     text
     |> String.split("\n")

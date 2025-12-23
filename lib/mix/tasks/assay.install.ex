@@ -22,7 +22,7 @@ defmodule Mix.Tasks.Assay.Install do
         installs: [],
         positional: [],
         composes: [],
-        schema: [yes: :boolean, all_apps: :boolean],
+        schema: [yes: :boolean, all_apps: :boolean, ci: :string],
         defaults: [],
         aliases: [A: :all_apps],
         required: []
@@ -36,12 +36,15 @@ defmodule Mix.Tasks.Assay.Install do
       detected = Map.get(igniter.assigns, @assign_detected_config, detect_apps())
       selection = select_apps(igniter, detected)
 
+      ci_provider = ci_provider(igniter)
+
       igniter
       |> ensure_assay_dep()
       |> ensure_project_config(selection)
       |> ensure_gitignore()
       |> ensure_ignore_file()
-      |> Igniter.add_notice(summary(selection))
+      |> ensure_ci(ci_provider)
+      |> Igniter.add_notice(summary(selection, ci_provider))
     end
 
     defp ensure_assay_dep(igniter) do
@@ -98,6 +101,163 @@ defmodule Mix.Tasks.Assay.Install do
         # %{file: "lib/my_app.ex", message: "unknown function"}
       ]
       """)
+    end
+
+    defp ensure_ci(igniter, :none), do: igniter
+
+    defp ensure_ci(igniter, :github) do
+      content = github_workflow_content()
+
+      igniter
+      |> Igniter.create_or_update_file(".github/workflows/assay.yml", content, fn source ->
+        Source.update(source, :content, fn _ -> content end)
+      end)
+    end
+
+    defp ensure_ci(igniter, :gitlab) do
+      content = gitlab_pipeline_content()
+
+      Igniter.create_or_update_file(igniter, ".gitlab-ci.yml", content, fn source ->
+        Source.update(source, :content, fn _ -> content end)
+      end)
+    end
+
+    defp ci_provider(%{args: %{options: options}}) when is_list(options) do
+      options
+      |> Keyword.get(:ci)
+      |> normalize_ci_option()
+    end
+
+    defp ci_provider(_igniter), do: :github
+
+    defp normalize_ci_option(nil), do: :github
+
+    defp normalize_ci_option(option) when is_atom(option) do
+      case option do
+        :github -> :github
+        :gitlab -> :gitlab
+        :none -> :none
+        other -> raise ArgumentError, "Unsupported ci option: #{inspect(other)}"
+      end
+    end
+
+    defp normalize_ci_option(option) when is_binary(option) do
+      option
+      |> String.downcase()
+      |> case do
+        "github" -> :github
+        "gitlab" -> :gitlab
+        "none" -> :none
+        other -> raise ArgumentError, "Unsupported ci option: #{other}"
+      end
+    end
+
+    defp normalize_ci_option(other) do
+      raise ArgumentError, "Unsupported ci option: #{inspect(other)}"
+    end
+
+    defp github_workflow_content do
+      elixir = System.version()
+      otp = otp_version()
+
+      """
+      name: Assay
+
+      on:
+        push:
+          branches: [\"main\"]
+        pull_request:
+
+      permissions:
+        contents: read
+
+      jobs:
+        assay:
+          runs-on: ubuntu-latest
+          env:
+            MIX_ENV: dev
+          steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Elixir
+              uses: erlef/setup-beam@v1
+              with:
+                elixir-version: '#{elixir}'
+                otp-version: '#{otp}'
+
+            - name: Cache deps
+              uses: actions/cache@v4
+              with:
+                path: deps
+                key: ${{ runner.os }}-mix-${{ env.MIX_ENV }}-${{ hashFiles('mix.lock') }}
+                restore-keys: ${{ runner.os }}-mix-${{ env.MIX_ENV }}-
+
+            - name: Cache _build
+              uses: actions/cache@v4
+              with:
+                path: _build/${{ env.MIX_ENV }}
+                key: ${{ runner.os }}-build-${{ env.MIX_ENV }}-${{ hashFiles('mix.lock') }}
+                restore-keys: ${{ runner.os }}-build-${{ env.MIX_ENV }}-
+
+            - name: Cache Dialyzer PLT
+              uses: actions/cache@v4
+              with:
+                path: _build/assay
+                key: ${{ runner.os }}-plt-#{otp}-#{elixir}-${{ hashFiles('mix.lock') }}
+                restore-keys: |
+                  ${{ runner.os }}-plt-#{otp}-#{elixir}-
+
+            - run: mix deps.get
+            - run: mix compile --warnings-as-errors
+            - run: mix assay --format github --format sarif | tee assay.sarif
+
+            - name: Upload SARIF report
+              if: always()
+              uses: github/codeql-action/upload-sarif@v3
+              with:
+                sarif_file: assay.sarif
+      """
+    end
+
+    defp gitlab_pipeline_content do
+      elixir = System.version()
+      otp = otp_version()
+
+      """
+      image: hexpm/elixir:#{elixir}-erlang-#{otp}-ubuntu-jammy
+
+      variables:
+        MIX_ENV: \"dev\"
+
+      cache:
+        key: \"$CI_COMMIT_REF_SLUG\"
+        paths:
+          - deps/
+          - _build/dev/
+          - _build/assay/
+
+      stages:
+        - assay
+
+      assay:
+        stage: assay
+        before_script:
+          - mix local.hex --force
+          - mix local.rebar --force
+          - mix deps.get
+          - mix compile --warnings-as-errors
+        script:
+          - mix assay --format github --format sarif | tee assay.sarif
+        artifacts:
+          when: always
+          paths:
+            - assay.sarif
+      """
+    end
+
+    defp otp_version do
+      :erlang.system_info(:otp_release)
+      |> to_string()
     end
 
     defp detect_apps do
@@ -226,11 +386,18 @@ defmodule Mix.Tasks.Assay.Install do
       CodeKeyword.put_in_keyword(zipper, [:dialyzer], dialyzer_ast)
     end
 
-    defp summary(%{apps: apps, warning_apps: warning_apps}) do
+    defp summary(%{apps: apps, warning_apps: warning_apps}, ci_provider) do
+      ci_line =
+        case ci_provider do
+          :github -> "\n  CI workflow: .github/workflows/assay.yml"
+          :gitlab -> "\n  CI workflow: .gitlab-ci.yml"
+          :none -> "\n  CI workflow: skipped (pass --ci=github or --ci=gitlab to scaffold)"
+        end
+
       """
       Installed Assay with:
         apps: #{inspect(apps)}
-        warning_apps: #{inspect(warning_apps)}
+        warning_apps: #{inspect(warning_apps)}#{ci_line}
       """
     end
 

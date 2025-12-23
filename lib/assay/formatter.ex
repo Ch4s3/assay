@@ -12,6 +12,7 @@ defmodule Assay.Formatter do
   - `:elixir` - Same as `:text` but with pretty-printed Erlang terms (requires `erlex` dependency)
   - `:github` - GitHub Actions workflow annotations (`::warning file=...::message`)
   - `:json` - JSON objects for machine/RPC consumers (one JSON object per warning)
+  - `:sarif` - SARIF 2.1.0 log (entire log emitted as a single JSON string)
   - `:llm` - JSON format optimized for LLM consumption (single-line messages, structured data)
 
   ## Options
@@ -105,6 +106,28 @@ defmodule Assay.Formatter do
     end)
   end
 
+  def format(entries, :sarif, opts) do
+    project_root = Keyword.fetch!(opts, :project_root)
+
+    sarif = %{
+      "version" => "2.1.0",
+      "$schema" => "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs" => [
+        %{
+          "tool" => %{
+            "driver" => %{
+              "name" => "Assay",
+              "informationUri" => "https://github.com/ch4s3/assay"
+            }
+          },
+          "results" => Enum.map(entries, &sarif_result(&1, project_root))
+        }
+      ]
+    }
+
+    [JSON.encode!(sarif)]
+  end
+
   @doc false
   @spec warning_payload(map(), binary()) :: map()
   def warning_payload(entry, project_root) do
@@ -123,6 +146,48 @@ defmodule Assay.Formatter do
       "location" => format_location(relative, entry.line, entry.column),
       "project_root" => project_root
     }
+  end
+
+  defp sarif_result(entry, project_root) do
+    relative = entry.relative_path || relative_display(entry.path, project_root) || entry.path
+
+    location =
+      %{
+        "artifactLocation" => %{
+          "uri" => relative || entry.path || "unknown"
+        }
+      }
+      |> maybe_put_region(entry)
+
+    %{
+      "ruleId" => code_to_string(entry.code) || "dialyzer",
+      "level" => sarif_level(entry.code),
+      "message" => %{"text" => entry_message(entry)},
+      "locations" => [%{"physicalLocation" => location}],
+      "properties" => %{
+        "match" => entry.match_text,
+        "raw_path" => entry.path
+      }
+    }
+  end
+
+  defp maybe_put_region(location, entry) do
+    region =
+      case {entry.line, entry.column} do
+        {line, column} when is_integer(line) and is_integer(column) ->
+          %{"startLine" => line, "startColumn" => column}
+
+        {line, _} when is_integer(line) ->
+          %{"startLine" => line}
+
+        _ ->
+          nil
+      end
+
+    case region do
+      nil -> location
+      _ -> Map.put(location, "region", region)
+    end
   end
 
   defp format_text_entry(entry, project_root, opts) do
@@ -438,4 +503,11 @@ defmodule Assay.Formatter do
   defp code_to_string(nil), do: nil
   defp code_to_string(code) when is_atom(code), do: Atom.to_string(code)
   defp code_to_string(other), do: to_string(other)
+
+  defp sarif_level(code) do
+    case warning_severity(code) do
+      "warning" -> "warning"
+      _ -> "note"
+    end
+  end
 end

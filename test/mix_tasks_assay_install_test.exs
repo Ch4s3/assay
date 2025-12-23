@@ -35,6 +35,9 @@ defmodule Mix.Tasks.Assay.InstallTest do
 
     assert Map.fetch!(files, "dialyzer_ignore.exs") =~
              "# %{file: \"lib/my_app.ex\", message: \"unknown function\"}"
+
+    assert Map.fetch!(files, ".github/workflows/assay.yml") =~
+             "mix assay --format github --format sarif"
   end
 
   test "installer can run at the root of umbrella projects" do
@@ -74,6 +77,24 @@ defmodule Mix.Tasks.Assay.InstallTest do
 
     files = igniter.assigns[:test_files]
     assert Map.fetch!(files, ".gitignore") == "_build/assay\n"
+  end
+
+  test "installer can scaffold gitlab CI when requested" do
+    igniter =
+      IgniterTest.test_project(
+        files: %{
+          ".gitignore" => "",
+          "mix.exs" => mixfile()
+        }
+      )
+      |> Igniter.assign(:assay_detected_apps, @detected)
+      |> put_option(:ci, "gitlab")
+      |> put_option(:all_apps, false)
+      |> Install.igniter()
+      |> IgniterTest.apply_igniter!()
+
+    files = igniter.assigns[:test_files]
+    assert Map.fetch!(files, ".gitlab-ci.yml") =~ "mix assay --format github --format sarif"
   end
 
   defp mixfile do
