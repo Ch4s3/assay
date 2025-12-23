@@ -73,8 +73,11 @@ defmodule Assay.Watch do
     ref = Process.monitor(watcher)
 
     state =
-      state
-      |> execute_run_async("Initial run")
+      if run_once? do
+        execute_run(state, "Initial run")
+      else
+        execute_run_async(state, "Initial run")
+      end
 
     if run_once? do
       stop_watcher(fs_mod, watcher)
@@ -99,27 +102,36 @@ defmodule Assay.Watch do
         loop(execute_run_async(state, "Change detected"), ref)
 
       {task_ref, result} when is_reference(task_ref) ->
-        if not is_nil(state.analysis_task) and task_ref == state.analysis_task do
-          case result do
-            :ok -> Mix.shell().info("[Assay] No warnings")
-            :warnings -> Mix.shell().info("[Assay] Warnings detected")
-            :error -> Mix.shell().error("[Assay] Analysis failed")
-          end
-          # Clear the running flag and task reference
-          new_state = %{state | running: false, analysis_task: nil}
-          loop(new_state, ref)
-        else
-          loop(state, ref)
+        case state.analysis_task do
+          ^task_ref ->
+            case result do
+              :ok -> Mix.shell().info("[Assay] No warnings")
+              :warnings -> Mix.shell().info("[Assay] Warnings detected")
+              :error -> Mix.shell().error("[Assay] Analysis failed")
+            end
+
+            # Clear the running flag and task reference
+            new_state = %{state | running: false, analysis_task: nil}
+            loop(new_state, ref)
+
+          _ ->
+            loop(state, ref)
         end
 
       {:DOWN, ^ref, :process, _pid, reason} ->
         Mix.shell().error("[Assay] File watcher process crashed: #{inspect(reason)}")
         exit({:shutdown, :watcher_crashed})
 
-      {:DOWN, task_ref, :process, _pid, _reason} when not is_nil(state.analysis_task) and task_ref == state.analysis_task ->
-        # Task completed normally (DOWN message after result)
-        new_state = %{state | running: false, analysis_task: nil}
-        loop(new_state, ref)
+      {:DOWN, task_ref, :process, _pid, _reason} ->
+        case state.analysis_task do
+          ^task_ref ->
+            # Task completed normally (DOWN message after result)
+            new_state = %{state | running: false, analysis_task: nil}
+            loop(new_state, ref)
+
+          _ ->
+            loop(state, ref)
+        end
 
       _other ->
         # Ignore unexpected messages (could be from other processes)
@@ -289,11 +301,13 @@ defmodule Assay.Watch do
     relative = relative_to_root(path, root)
     # Check if path starts with any of the default dirs
     # For umbrella projects, files in apps/*/lib/ should match
-    matches = Enum.any?(@default_dirs, fn dir ->
-      String.starts_with?(relative, dir <> "/") or
-      relative == dir or
-      String.starts_with?(relative, dir)
-    end)
+    matches =
+      Enum.any?(@default_dirs, fn dir ->
+        String.starts_with?(relative, dir <> "/") or
+          relative == dir or
+          String.starts_with?(relative, dir)
+      end)
+
     matches
   end
 

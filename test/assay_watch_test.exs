@@ -3,6 +3,31 @@ defmodule Assay.WatchTest do
 
   @moduletag :tmp_dir
 
+  defmodule Notifier do
+    def target do
+      case Process.get(:"$callers") do
+        [parent | _] when is_pid(parent) -> parent
+        _ -> self()
+      end
+    end
+  end
+
+  defmodule ResultStore do
+    def key(parent), do: {__MODULE__, parent}
+
+    def get(parent, default \\ :ok) do
+      :persistent_term.get(key(parent), default)
+    end
+
+    def put(parent, value) do
+      :persistent_term.put(key(parent), value)
+    end
+
+    def delete(parent) do
+      :persistent_term.erase(key(parent))
+    end
+  end
+
   defmodule FileSystemStub do
     def start_link(opts) do
       send(self(), {:file_system_start, opts})
@@ -52,25 +77,27 @@ defmodule Assay.WatchTest do
 
   defmodule AssayStub do
     def run do
-      result = Process.get(:assay_watch_result, :ok)
-      send(self(), {:assay_run, result})
+      parent = Notifier.target()
+      result = ResultStore.get(parent)
+      send(parent, {:assay_run, result})
       result
     end
   end
 
   defmodule AssayErrorStub do
     def run do
-      send(self(), {:assay_run, :error})
+      send(Notifier.target(), {:assay_run, :error})
       raise "Assay run failed"
     end
   end
 
   defmodule AssaySlowStub do
     def run do
-      send(self(), {:assay_run_started})
+      parent = Notifier.target()
+      send(parent, {:assay_run_started})
       Process.sleep(100)
-      result = Process.get(:assay_watch_result, :ok)
-      send(self(), {:assay_run, result})
+      result = ResultStore.get(parent)
+      send(parent, {:assay_run, result})
       result
     end
   end
@@ -87,16 +114,19 @@ defmodule Assay.WatchTest do
         latency: 50,
         debounce: 10
       )
+
+      assert_receive {:assay_run, :ok}
     end)
 
     assert_received {:file_system_start, opts}
     assert Keyword.has_key?(opts, :dirs)
     assert_received :file_system_subscribed
-    assert_received {:assay_run, :ok}
   end
 
   test "run reports warnings when assay returns warnings", %{tmp_dir: tmp_dir} do
-    Process.put(:assay_watch_result, :warnings)
+    parent = self()
+    ResultStore.put(parent, :warnings)
+    on_exit(fn -> ResultStore.delete(parent) end)
 
     output =
       capture_io(fn ->
@@ -106,10 +136,11 @@ defmodule Assay.WatchTest do
           file_system_module: FileSystemStub,
           assay_module: AssayStub
         )
+
+        assert_receive {:assay_run, :warnings}
       end)
 
     assert output =~ "Warnings detected"
-    assert_received {:assay_run, :warnings}
   end
 
   test "handles watcher startup failure", %{tmp_dir: tmp_dir} do
@@ -190,8 +221,6 @@ defmodule Assay.WatchTest do
         end)
       end)
 
-    Process.put(:assay_watch_result, :ok)
-
     task =
       Task.async(fn ->
         capture_io(fn ->
@@ -205,6 +234,8 @@ defmodule Assay.WatchTest do
         end)
       end)
 
+    ResultStore.put(task.pid, :ok)
+
     # Give the watcher a moment to start, then send its PID
     Process.sleep(10)
     send(event_sender, {:pid, task.pid})
@@ -213,7 +244,8 @@ defmodule Assay.WatchTest do
     assert_receive :done, 200
 
     # Clean up
-    Process.exit(task.pid, :kill)
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
   end
 
   test "filters irrelevant paths", %{tmp_dir: tmp_dir} do
@@ -246,8 +278,6 @@ defmodule Assay.WatchTest do
         send(parent, :done)
       end)
 
-    Process.put(:assay_watch_result, :ok)
-
     task =
       Task.async(fn ->
         capture_io(fn ->
@@ -261,10 +291,13 @@ defmodule Assay.WatchTest do
         end)
       end)
 
+    ResultStore.put(task.pid, :ok)
+
     Process.sleep(10)
     send(event_sender, {:pid, task.pid})
     assert_receive :done, 200
-    Process.exit(task.pid, :kill)
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
   end
 
   test "handles watcher process crash", %{tmp_dir: tmp_dir} do
@@ -368,7 +401,7 @@ defmodule Assay.WatchTest do
     Process.sleep(10)
     send(event_sender, {:pid, task.pid})
     assert_receive :done, 500
-    Process.exit(task.pid, :kill)
+    Task.shutdown(task, :brutal_kill)
   end
 
   test "handles empty watch directories gracefully", %{tmp_dir: tmp_dir} do

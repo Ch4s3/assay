@@ -11,6 +11,7 @@ defmodule Assay.Formatter do
   - `:text` - Human-readable text format with code snippets and location information
   - `:elixir` - Same as `:text` but with pretty-printed Erlang terms (requires `erlex` dependency)
   - `:github` - GitHub Actions workflow annotations (`::warning file=...::message`)
+  - `:json` - JSON objects for machine/RPC consumers (one JSON object per warning)
   - `:llm` - JSON format optimized for LLM consumption (single-line messages, structured data)
 
   ## Options
@@ -78,38 +79,50 @@ defmodule Assay.Formatter do
 
     entries
     |> Enum.map(fn entry ->
-      relative = entry.relative_path || relative_display(entry.path, project_root) || "unknown"
-
-      # Create single-line message by removing newlines and extra whitespace
-      message_single_line =
-        entry
-        |> entry_message()
-        |> String.replace("\n", " ")
-        |> String.replace("\r", " ")
-        |> String.replace(~r/\s+/, " ")
-        |> String.trim()
-
-      location =
-        case {entry.line, entry.column} do
-          {line, column} when not is_nil(line) and not is_nil(column) ->
-            "#{relative}:#{line}:#{column}"
-          {line, _} when not is_nil(line) ->
-            "#{relative}:#{line}"
-          _ ->
-            relative
-        end
+      payload = warning_payload(entry, project_root)
+      relative = payload["relative_path"] || "unknown"
 
       %{
-        code: entry.code |> Atom.to_string(),
-        location: location,
+        code: payload["code"],
+        location: payload["location"],
         file: relative,
         line: entry.line,
         column: entry.column,
-        message: message_single_line,
-        severity: warning_severity(entry.code)
+        message: payload["message_single_line"],
+        severity: payload["severity"]
       }
       |> JSON.encode!()
     end)
+  end
+
+  def format(entries, :json, opts) do
+    project_root = Keyword.fetch!(opts, :project_root)
+
+    Enum.map(entries, fn entry ->
+      entry
+      |> warning_payload(project_root)
+      |> JSON.encode!()
+    end)
+  end
+
+  @doc false
+  @spec warning_payload(map(), binary()) :: map()
+  def warning_payload(entry, project_root) do
+    relative = entry.relative_path || relative_display(entry.path, project_root) || "unknown"
+
+    %{
+      "message" => entry.text || entry_message(entry),
+      "message_single_line" => single_line_message(entry),
+      "match" => entry.match_text,
+      "path" => entry.path,
+      "relative_path" => relative,
+      "line" => entry.line,
+      "column" => entry.column,
+      "code" => code_to_string(entry.code),
+      "severity" => warning_severity(entry.code),
+      "location" => format_location(relative, entry.line, entry.column),
+      "project_root" => project_root
+    }
   end
 
   defp format_text_entry(entry, project_root, opts) do
@@ -139,6 +152,15 @@ defmodule Assay.Formatter do
 
   defp entry_message(entry) do
     entry.match_text || entry.text || "Dialyzer warning"
+  end
+
+  defp single_line_message(entry) do
+    entry
+    |> entry_message()
+    |> String.replace("\n", " ")
+    |> String.replace("\r", " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   defp format_location(relative, line, column) do
@@ -412,4 +434,8 @@ defmodule Assay.Formatter do
   end
 
   defp warning_severity(_), do: "warning"
+
+  defp code_to_string(nil), do: nil
+  defp code_to_string(code) when is_atom(code), do: Atom.to_string(code)
+  defp code_to_string(other), do: to_string(other)
 end

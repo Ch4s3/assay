@@ -13,8 +13,7 @@ defmodule Assay.Daemon do
     * `assay/shutdown`  — cleanly stops the daemon
   """
 
-  alias Assay.Config
-  alias Assay.Runner
+  alias Assay.{Config, Formatter, Runner}
 
   @jsonrpc "2.0"
   @allowed_overrides ~w(apps warning_apps cache_dir plt_path ignore_file)a
@@ -103,7 +102,11 @@ defmodule Assay.Daemon do
 
     payload = %{
       "status" => Atom.to_string(analysis.status),
-      "warnings" => Enum.map(analysis.warnings, &warning_payload(&1, running.config)),
+      "warnings" =>
+        Enum.map(
+          analysis.warnings,
+          &Formatter.warning_payload(&1, running.config.project_root)
+        ),
       "ignored" => length(analysis.ignored),
       "ignore_file" => display_ignore_path(analysis.ignore_path, running.config.project_root),
       "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601()
@@ -211,38 +214,6 @@ defmodule Assay.Daemon do
   end
 
   defp normalize_formats(_), do: [:text]
-
-  defp warning_payload(entry, %Config{project_root: root}) do
-    # Create single-line message by removing newlines and extra whitespace
-    message_single_line =
-      (entry.match_text || entry.text || "Dialyzer warning")
-      |> String.replace("\n", " ")
-      |> String.replace("\r", " ")
-      |> String.replace(~r/\s+/, " ")
-      |> String.trim()
-
-    %{
-      "message" => entry.text,
-      "message_single_line" => message_single_line,
-      "match" => entry.match_text,
-      "path" => entry.path,
-      "relative_path" => entry.relative_path,
-      "line" => entry.line,
-      "column" => entry.column,
-      "code" => entry.code |> Atom.to_string(),
-      "severity" => warning_severity(entry.code),
-      "project_root" => root
-    }
-  end
-
-  defp warning_severity(code) when is_atom(code) do
-    case Atom.to_string(code) do
-      "warn_" <> _ -> "warning"
-      _ -> "info"
-    end
-  end
-
-  defp warning_severity(_), do: "warning"
 
   defp config_payload(%Config{} = config) do
     %{

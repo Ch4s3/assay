@@ -247,8 +247,7 @@ defmodule Assay.MCPIntegrationTest do
 
     input =
       messages
-      |> Enum.map(fn msg -> JSON.encode!(msg) <> "\n" end)
-      |> Enum.join()
+      |> Enum.map_join("\n", fn msg -> JSON.encode!(msg) end)
 
     {:ok, io} = StringIO.open(input)
 

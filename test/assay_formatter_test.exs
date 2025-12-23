@@ -489,6 +489,32 @@ defmodule Assay.FormatterTest do
     assert result == ["::warning file=lib/foo.ex,line=10::warning text"]
   end
 
+  test "json formatter emits structured payloads", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "lib/foo.ex")
+
+    entries = [
+      %{
+        text: "warning text",
+        match_text: "warning text",
+        path: path,
+        relative_path: "lib/foo.ex",
+        line: 5,
+        column: 1,
+        code: :warn_return_no_exit
+      }
+    ]
+
+    [json] = Formatter.format(entries, :json, project_root: tmp_dir)
+    {:ok, payload} = JSON.decode(json)
+
+    assert payload["relative_path"] == "lib/foo.ex"
+    assert payload["line"] == 5
+    assert payload["column"] == 1
+    assert payload["code"] == "warn_return_no_exit"
+    assert payload["severity"] == "warning"
+    assert payload["location"] == "lib/foo.ex:5:1"
+  end
+
   defp find_line(text, needle) do
     text
     |> String.split("\n")
