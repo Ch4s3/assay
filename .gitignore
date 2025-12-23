@@ -23,3 +23,5 @@ assay-*.tar
 /tmp/
 
 .DS_Store
+
+/working_files/
