@@ -2,7 +2,28 @@ defmodule Assay.MCPTest do
   use ExUnit.Case, async: true
 
   alias Assay.{MCP, Daemon}
-  alias Assay.DaemonTest.FakeRunner
+
+  defmodule FakeRunner do
+    def analyze(_config, _opts) do
+      %{
+        status: :warnings,
+        warnings: [
+          %{
+            text: "lib/foo.ex:1: dialyzer warning",
+            match_text: "lib/foo.ex:1: dialyzer warning",
+          path: "/tmp/lib/foo.ex",
+          relative_path: "lib/foo.ex",
+          line: 1,
+          column: nil,
+          code: :unknown
+        }
+      ],
+        ignored: [],
+        ignore_path: nil,
+        options: []
+      }
+    end
+  end
 
   defmodule CaptureRunner do
     def analyze(config, opts) do
@@ -111,5 +132,18 @@ defmodule Assay.MCPTest do
     request = %{"jsonrpc" => "2.0", "method" => "notifications/initialized"}
     {reply, _state, :continue} = MCP.handle_rpc(request, state)
     assert reply == nil
+  end
+
+  test "tools/list rejects calls before initialize", %{state: state} do
+    request = %{"jsonrpc" => "2.0", "id" => 10, "method" => "tools/list"}
+    {reply, _state, :continue} = MCP.handle_rpc(request, state)
+    assert reply["error"]["code"] == -32_602
+  end
+
+  test "double initialize returns an error", %{state: state} do
+    init = %{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"}
+    {_reply, state, :continue} = MCP.handle_rpc(init, state)
+    {reply, _state, :continue} = MCP.handle_rpc(init, state)
+    assert reply["error"]["code"] == -32_602
   end
 end

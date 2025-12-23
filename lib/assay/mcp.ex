@@ -84,6 +84,10 @@ defmodule Assay.MCP do
 
   def handle_rpc(_other, state), do: {nil, state, :continue}
 
+  defp dispatch("initialize", _params, %__MODULE__{initialized?: true} = state) do
+    {:error, -32_602, "Server already initialized", nil, state}
+  end
+
   defp dispatch("initialize", params, %__MODULE__{} = state) do
     capabilities = %{
       "tools" => %{"listChanged" => true}
@@ -104,17 +108,21 @@ defmodule Assay.MCP do
   end
 
   defp dispatch("tools/list", _params, %__MODULE__{} = state) do
-    {:ok, %{"tools" => [tool_spec()]}, state}
+    ensure_initialized(state, fn ->
+      {:ok, %{"tools" => [tool_spec()]}, state}
+    end)
   end
 
   defp dispatch("tools/call", params, %__MODULE__{} = state) do
-    case Map.get(params, "name") do
-      @tool_name ->
-        handle_tool_call(params, state)
+    ensure_initialized(state, fn ->
+      case Map.get(params, "name") do
+        @tool_name ->
+          handle_tool_call(params, state)
 
-      other ->
-        {:error, -32_601, "Unknown tool #{inspect(other)}", nil, state}
-    end
+        other ->
+          {:error, -32_601, "Unknown tool #{inspect(other)}", nil, state}
+      end
+    end)
   end
 
   defp dispatch("shutdown", _params, %__MODULE__{} = state) do
@@ -165,22 +173,26 @@ defmodule Assay.MCP do
   end
 
   defp loop(state) do
-    case IO.read(:stdio, :line) do
-      :eof -> :ok
-      {:error, _} -> :ok
-      data -> process_input(data, state)
-    end
-  end
+    case read_message() do
+      {:ok, ""} ->
+        loop(state)
 
-  defp process_input(data, state) do
-    trimmed = String.trim_trailing(data || "", "\n")
+      {:ok, data} ->
+        trimmed = String.trim(data || "")
+        if trimmed == "" do
+          loop(state)
+        else
+          {reply, new_state, action} = process_line(trimmed, state)
+          maybe_write(reply)
+          handle_action(action, new_state)
+        end
 
-    if trimmed == "" do
-      loop(state)
-    else
-      {reply, new_state, action} = process_line(trimmed, state)
-      maybe_write(reply)
-      handle_action(action, new_state)
+      :eof ->
+        :ok
+
+      {:error, reason} ->
+        maybe_write(jsonrpc_error(nil, -32_700, "Invalid MCP frame", %{"reason" => inspect(reason)}))
+        loop(state)
     end
   end
 
@@ -202,10 +214,9 @@ defmodule Assay.MCP do
   defp maybe_write(nil), do: :ok
 
   defp maybe_write(payload) do
-    payload
-    |> JSON.encode!()
-    |> Kernel.<>("\n")
-    |> IO.binwrite()
+    json = JSON.encode!(payload)
+    packet = "Content-Length: #{byte_size(json)}\r\n\r\n" <> json
+    IO.binwrite(packet)
   end
 
   defp normalize_params(params) when is_map(params), do: params
@@ -253,5 +264,110 @@ defmodule Assay.MCP do
       "id" => id,
       "error" => %{"code" => code, "message" => message, "data" => data}
     }
+  end
+
+  defp ensure_initialized(%__MODULE__{initialized?: true}, fun) do
+    fun.()
+  end
+
+  defp ensure_initialized(state, _fun) do
+    {:error, -32_602, "Server not initialized", nil, state}
+  end
+
+  defp read_message do
+    case IO.binread(:stdio, :line) do
+      :eof ->
+        :eof
+
+      {:error, reason} ->
+        {:error, reason}
+
+      data ->
+        trimmed = trim_line(data)
+
+        cond do
+          trimmed == "" ->
+            read_message()
+
+          header_line?(trimmed) ->
+            read_framed_message(%{}, data)
+
+          true ->
+            {:ok, trimmed}
+        end
+    end
+  end
+
+  defp read_framed_message(headers, first_line) do
+    with {:ok, headers} <- read_headers(headers, first_line),
+         {:ok, length} <- fetch_content_length(headers),
+         {:ok, body} <- IO.binread(:stdio, length) |> handle_body(length) do
+      {:ok, body}
+    end
+  end
+
+  defp read_headers(headers, line) do
+    trimmed = trim_line(line)
+
+    cond do
+      trimmed == "" ->
+        {:ok, headers}
+
+      true ->
+        with {:ok, updated} <- parse_header_line(trimmed, headers),
+             next <- IO.binread(:stdio, :line) do
+          case next do
+            :eof -> {:error, :unexpected_eof}
+            {:error, reason} -> {:error, reason}
+            data -> read_headers(updated, data)
+          end
+        end
+    end
+  end
+
+  defp parse_header_line(line, headers) do
+    case String.split(line, ":", parts: 2) do
+      [name, value] ->
+        key = String.downcase(String.trim(name))
+        {:ok, Map.put(headers, key, String.trim(value))}
+
+      _ ->
+        {:error, :invalid_header}
+    end
+  end
+
+  defp fetch_content_length(headers) do
+    case Map.fetch(headers, "content-length") do
+      {:ok, value} ->
+        case Integer.parse(value) do
+          {int, ""} when int >= 0 -> {:ok, int}
+          _ -> {:error, :invalid_content_length}
+        end
+
+      :error ->
+        {:error, :missing_content_length}
+    end
+  end
+
+  defp handle_body({:error, reason}, _expected), do: {:error, reason}
+  defp handle_body(:eof, _expected), do: {:error, :unexpected_eof}
+
+  defp handle_body(data, expected) when is_binary(data) do
+    if byte_size(data) == expected do
+      {:ok, data}
+    else
+      {:error, :short_body}
+    end
+  end
+
+  defp header_line?(line) do
+    String.downcase(line) |> String.starts_with?("content-length:")
+  end
+
+  defp trim_line(line) do
+    line
+    |> to_string()
+    |> String.trim_trailing("\n")
+    |> String.trim_trailing("\r")
   end
 end

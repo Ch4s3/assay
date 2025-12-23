@@ -1,21 +1,112 @@
 # Assay
 
-**TODO: Add description**
+Incremental Dialyzer for modern Elixir tooling. Assay reads Dialyzer settings
+directly from your host app’s `mix.exs`, runs the incremental engine, filters
+warnings via `dialyzer_ignore.exs`, and emits multiple output formats suited
+for humans, CI, editors, and LLM-driven tools.
+
+## Features
+
+* Incremental Dialyzer runs via `mix assay`
+* Watch mode (`mix assay.watch`) with debounced re-analysis
+* JSON/CLI formatters (`text`, `github`, `sarif`, `lsp`, `ndjson`, `llm`)
+* `dialyzer_ignore.exs` filtering with per-warning decorations
+* Igniter-powered installer (`mix assay.install`) that configures apps/
+  warning_apps in the host project
+* JSON-RPC daemon (`mix assay.daemon`) plus an MCP server (`mix assay.mcp`)
+  for editor/LSP/agent integrations
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `assay` to your list of dependencies in `mix.exs`:
+Add Assay as a dev/test dependency (local path while developing, Hex release
+once published):
 
 ```elixir
 def deps do
   [
-    {:assay, "~> 0.1.0"}
+    {:assay, "~> 0.1", runtime: false, only: [:dev, :test]}
   ]
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/assay>.
+From the host project, run:
 
+```bash
+mix assay.install --yes
+```
+
+This detects project/dep apps and injects:
+
+```elixir
+assay: [
+  dialyzer: [
+    apps: [...],
+    warning_apps: [...]
+  ]
+]
+```
+
+## Usage
+
+### One-off analysis
+
+```bash
+mix assay
+mix assay --print-config
+mix assay --format github --format sarif
+```
+
+Exit codes: `0` (clean), `1` (warnings), `2` (error).
+
+### Watch mode
+
+```bash
+mix assay.watch
+```
+
+Re-runs incremental Dialyzer on file changes and streams formatted output.
+
+### JSON-RPC daemon
+
+```bash
+mix assay.daemon
+```
+
+Speaks JSON-RPC over stdio. Supported methods:
+
+* `assay/analyze` – run incremental Dialyzer
+* `assay/getStatus`, `assay/getConfig`, `assay/setConfig`
+* `assay/shutdown`
+
+### MCP server
+
+```bash
+mix assay.mcp
+```
+
+Implements the Model Context Protocol (`initialize`, `tools/list`, `tools/call`)
+and exposes a single tool, `assay.analyze`, which returns the same structured
+diagnostics as the daemon. Requests/responses use the standard MCP/LSP framing:
+each JSON payload must be prefixed with `Content-Length: <bytes>\r\n\r\n`.
+
+### Pretty-printing Dialyzer terms
+
+Add [`erlex`](https://hexdocs.pm/erlex) to your host project's deps (e.g.
+`{:erlex, "~> 0.2", optional: true}`) and pass `--format elixir` to `mix assay`
+to render Dialyzer's Erlang detail blocks as Elixir-looking maps/structs (e.g.
+`%Ecto.Changeset{}`) while keeping plain output available when the default
+`text` format is used.
+
+## Development
+
+* `mix test` – unit tests (including daemon + MCP simulations)
+* `mix credo` – linting/style checks
+* `mix format` – formatter
+* `mix assay.watch` – dogfooding watch mode on the library itself
+
+## Status
+
+Assay currently focuses on incremental Dialyzer runs, watch mode, the Igniter
+installer, and daemon/MCP integrations. Future milestones include richer
+pass-through Dialyzer flag support, additional output formats, and expanded
+editor tooling.
