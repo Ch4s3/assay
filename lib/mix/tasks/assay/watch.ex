@@ -7,6 +7,10 @@ defmodule Mix.Tasks.Assay.Watch do
   @impl true
   def run(_args) do
     Mix.Task.run("app.start")
-    Assay.Watch.run()
+    watch_module().run()
+  end
+
+  defp watch_module do
+    Application.get_env(:assay, :watch_module, Assay.Watch)
   end
 end

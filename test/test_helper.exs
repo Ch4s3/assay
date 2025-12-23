@@ -1,1 +1,32 @@
 ExUnit.start()
+
+defmodule Assay.TestSupport.ConfigStub do
+  alias Assay.Config
+
+  def from_mix_project(opts) do
+    send(self(), {:config_opts, opts})
+    root = Keyword.get(opts, :project_root, "/tmp/assay-test")
+    apps = Keyword.get(opts, :apps, [:stub])
+    warning_apps = Keyword.get(opts, :warning_apps, apps)
+    cache_dir = Path.join(root, "_build/assay")
+
+    %Config{
+      apps: apps,
+      warning_apps: warning_apps,
+      project_root: root,
+      cache_dir: cache_dir,
+      plt_path: Path.join(cache_dir, "assay.incremental.plt"),
+      build_lib_path: Path.join(root, "_build/dev/lib"),
+      elixir_lib_path: Path.join(root, ".elixir"),
+      ignore_file: Path.join(root, "dialyzer_ignore.exs"),
+      warnings: Keyword.get(opts, :warnings, [])
+    }
+  end
+end
+
+defmodule Assay.TestSupport.RunnerStub do
+  def run(config, opts) do
+    send(self(), {:runner_called, config, opts})
+    Process.get(:runner_stub_status, :ok)
+  end
+end

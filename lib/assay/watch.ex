@@ -11,16 +11,19 @@ defmodule Assay.Watch do
   """
   @spec run(keyword()) :: no_return()
   def run(opts \\ []) do
-    project_root = File.cwd!()
+    project_root = Keyword.get(opts, :project_root, File.cwd!())
     dirs = watch_dirs(project_root)
+    fs_mod = watch_file_system(opts)
+    assay_mod = watch_runner(opts)
+    run_once? = Keyword.get(opts, :run_once, false)
 
     {:ok, watcher} =
-      FileSystem.start_link(
+      fs_mod.start_link(
         dirs: dirs,
         latency: Keyword.get(opts, :latency, 500)
       )
 
-    FileSystem.subscribe(watcher)
+    fs_mod.subscribe(watcher)
 
     Mix.shell().info(
       "Assay watch mode running (watching #{Enum.join(display_dirs(dirs, project_root), ", ")})."
@@ -32,12 +35,19 @@ defmodule Assay.Watch do
       %{
         project_root: project_root,
         debounce_ms: Keyword.get(opts, :debounce, 300),
-        timer: nil
+        timer: nil,
+        assay: assay_mod
       }
 
-    state
-    |> execute_run("Initial run")
-    |> loop()
+    state =
+      state
+      |> execute_run("Initial run")
+
+    if run_once? do
+      :ok
+    else
+      loop(state)
+    end
   end
 
   defp loop(state) do
@@ -63,7 +73,7 @@ defmodule Assay.Watch do
 
     Mix.shell().info("[Assay] #{reason}, running incremental Dialyzer...")
 
-    case Assay.run() do
+    case state.assay.run() do
       :ok -> Mix.shell().info("[Assay] No warnings")
       :warnings -> Mix.shell().info("[Assay] Warnings detected")
     end
@@ -160,5 +170,15 @@ defmodule Assay.Watch do
     Path.relative_to(path, root)
   rescue
     _ -> path
+  end
+
+  defp watch_file_system(opts) do
+    Keyword.get(opts, :file_system_module) ||
+      Application.get_env(:assay, :file_system_module, FileSystem)
+  end
+
+  defp watch_runner(opts) do
+    Keyword.get(opts, :assay_module) ||
+      Application.get_env(:assay, :assay_module, Assay)
   end
 end

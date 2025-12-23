@@ -14,7 +14,10 @@ defmodule Assay do
   """
   @spec run(keyword()) :: Runner.run_result()
   def run(opts \\ []) do
-    config = Config.from_mix_project(opts)
-    Runner.run(config, opts)
+    config_module = Application.get_env(:assay, :config_module, Config)
+    runner_module = Application.get_env(:assay, :runner_module, Runner)
+
+    config = config_module.from_mix_project(opts)
+    runner_module.run(config, opts)
   end
 end

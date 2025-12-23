@@ -8,6 +8,10 @@ defmodule Mix.Tasks.Assay.Mcp do
   @impl true
   def run(_argv) do
     Mix.Task.run("app.start")
-    Assay.MCP.serve()
+    mcp_module().serve()
+  end
+
+  defp mcp_module do
+    Application.get_env(:assay, :mcp_module, Assay.MCP)
   end
 end
