@@ -3,6 +3,7 @@ defmodule Mix.Tasks.Assay.InstallTest do
 
   alias Igniter.Mix.Task.Args
   alias Igniter.Test, as: IgniterTest
+  alias Mix.Tasks.Assay.Install
 
   @detected %{project_apps: [:demo], all_apps: [:demo, :logger]}
 
@@ -21,7 +22,7 @@ defmodule Mix.Tasks.Assay.InstallTest do
       )
       |> Igniter.assign(:assay_detected_apps, @detected)
       |> put_option(:all_apps, false)
-      |> Mix.Tasks.Assay.Install.igniter()
+      |> Install.igniter()
       |> IgniterTest.apply_igniter!()
 
     files = igniter.assigns[:test_files]
@@ -37,7 +38,7 @@ defmodule Mix.Tasks.Assay.InstallTest do
   end
 
   test "installer can run at the root of umbrella projects" do
-    assert Mix.Tasks.Assay.Install.supports_umbrella?()
+    assert Install.supports_umbrella?()
   end
 
   test "can opt into including detected dependencies via flag" do
@@ -50,12 +51,28 @@ defmodule Mix.Tasks.Assay.InstallTest do
       )
       |> Igniter.assign(:assay_detected_apps, @detected)
       |> put_option(:all_apps, true)
-      |> Mix.Tasks.Assay.Install.igniter()
+      |> Install.igniter()
       |> IgniterTest.apply_igniter!()
 
     files = igniter.assigns[:test_files]
     mix_contents = Map.fetch!(files, "mix.exs")
     assert mix_contents =~ "assay: [dialyzer: [apps: [:demo, :logger], warning_apps: [:demo]]]"
+  end
+
+  test "installer avoids duplicating gitignore entries" do
+    igniter =
+      IgniterTest.test_project(
+        files: %{
+          ".gitignore" => "_build/assay\n",
+          "mix.exs" => mixfile()
+        }
+      )
+      |> Igniter.assign(:assay_detected_apps, @detected)
+      |> Install.igniter()
+      |> IgniterTest.apply_igniter!()
+
+    files = igniter.assigns[:test_files]
+    assert Map.fetch!(files, ".gitignore") == "_build/assay\n"
   end
 
   defp mixfile do

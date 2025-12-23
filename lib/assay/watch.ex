@@ -8,8 +8,10 @@ defmodule Assay.Watch do
   @doc """
   Runs incremental Dialyzer once and then re-runs it whenever watched files
   change. Intended for local developer use (`mix assay.watch`).
+
+  Returns `:ok` when `run_once: true`, otherwise never returns (runs indefinitely).
   """
-  @spec run(keyword()) :: no_return()
+  @spec run(keyword()) :: :ok | no_return()
   def run(opts \\ []) do
     project_root = Keyword.get(opts, :project_root, File.cwd!())
     dirs = watch_dirs(project_root)
@@ -17,13 +19,37 @@ defmodule Assay.Watch do
     assay_mod = watch_runner(opts)
     run_once? = Keyword.get(opts, :run_once, false)
 
-    {:ok, watcher} =
-      fs_mod.start_link(
-        dirs: dirs,
-        latency: Keyword.get(opts, :latency, 500)
-      )
+    watcher =
+      case fs_mod.start_link(
+             dirs: dirs,
+             latency: Keyword.get(opts, :latency, 500)
+           ) do
+        {:ok, pid} ->
+          pid
 
-    fs_mod.subscribe(watcher)
+        {:error, reason} ->
+          Mix.shell().error("[Assay] Failed to start file watcher: #{inspect(reason)}")
+          exit({:shutdown, :watcher_start_failed})
+
+        other ->
+          Mix.shell().error("[Assay] Unexpected file watcher response: #{inspect(other)}")
+          exit({:shutdown, :watcher_unexpected_response})
+      end
+
+    case fs_mod.subscribe(watcher) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Mix.shell().error("[Assay] Failed to subscribe to file watcher: #{inspect(reason)}")
+        stop_watcher(fs_mod, watcher)
+        exit({:shutdown, :watcher_subscribe_failed})
+
+      other ->
+        Mix.shell().error("[Assay] Unexpected subscribe response: #{inspect(other)}")
+        stop_watcher(fs_mod, watcher)
+        exit({:shutdown, :watcher_subscribe_unexpected})
+    end
 
     Mix.shell().info(
       "Assay watch mode running (watching #{Enum.join(display_dirs(dirs, project_root), ", ")})."
@@ -36,49 +62,88 @@ defmodule Assay.Watch do
         project_root: project_root,
         debounce_ms: Keyword.get(opts, :debounce, 300),
         timer: nil,
-        assay: assay_mod
+        assay: assay_mod,
+        watcher: watcher,
+        fs_mod: fs_mod,
+        running: false
       }
+
+    # Monitor the watcher process
+    ref = Process.monitor(watcher)
 
     state =
       state
       |> execute_run("Initial run")
 
     if run_once? do
+      stop_watcher(fs_mod, watcher)
       :ok
     else
-      loop(state)
+      loop(state, ref)
     end
   end
 
-  defp loop(state) do
+  defp loop(state, ref) do
     receive do
       {:file_event, _pid, {path, _events}} ->
-        loop(maybe_schedule(path, state))
+        loop(maybe_schedule(path, state), ref)
 
       {:file_event, _pid, :stop} ->
-        loop(state)
+        loop(state, ref)
 
       {:file_event, _pid, path} ->
-        loop(maybe_schedule(path, state))
+        loop(maybe_schedule(path, state), ref)
 
       :run ->
         state
         |> execute_run("Change detected")
-        |> loop()
+        |> then(&loop(&1, ref))
+
+      {:DOWN, ^ref, :process, _pid, reason} ->
+        Mix.shell().error("[Assay] File watcher process crashed: #{inspect(reason)}")
+        exit({:shutdown, :watcher_crashed})
     end
   end
 
   defp execute_run(state, reason) do
     cancel_timer(state.timer)
 
-    Mix.shell().info("[Assay] #{reason}, running incremental Dialyzer...")
+    # If a run is already in progress, skip this one (debounce will reschedule)
+    if state.running do
+      Mix.shell().info("[Assay] Run already in progress, skipping...")
+      state
+    else
+      Mix.shell().info("[Assay] #{reason}, running incremental Dialyzer...")
 
-    case state.assay.run() do
-      :ok -> Mix.shell().info("[Assay] No warnings")
-      :warnings -> Mix.shell().info("[Assay] Warnings detected")
+      running_state = %{state | running: true, timer: nil}
+
+      result =
+        try do
+          state.assay.run()
+        rescue
+          error ->
+            Mix.shell().error(
+              "[Assay] Error running analysis: #{Exception.format(:error, error, __STACKTRACE__)}"
+            )
+
+            :error
+        catch
+          kind, reason ->
+            Mix.shell().error(
+              "[Assay] Error running analysis: #{Exception.format(kind, reason, __STACKTRACE__)}"
+            )
+
+            :error
+        end
+
+      case result do
+        :ok -> Mix.shell().info("[Assay] No warnings")
+        :warnings -> Mix.shell().info("[Assay] Warnings detected")
+        :error -> Mix.shell().error("[Assay] Analysis failed")
+      end
+
+      %{running_state | running: false}
     end
-
-    %{state | timer: nil}
   end
 
   defp maybe_schedule(path, state) do
@@ -180,5 +245,22 @@ defmodule Assay.Watch do
   defp watch_runner(opts) do
     Keyword.get(opts, :assay_module) ||
       Application.get_env(:assay, :assay_module, Assay)
+  end
+
+  defp stop_watcher(fs_mod, watcher) do
+    if function_exported?(fs_mod, :stop, 1) do
+      try do
+        fs_mod.stop(watcher)
+      rescue
+        _ -> :ok
+      catch
+        _, _ -> :ok
+      end
+    else
+      # If stop/1 doesn't exist, try to kill the process
+      if Process.alive?(watcher) do
+        Process.exit(watcher, :normal)
+      end
+    end
   end
 end

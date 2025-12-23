@@ -4,8 +4,8 @@ defmodule Mix.Tasks.Assay.Install do
   if Code.ensure_loaded?(Igniter.Mix.Task) do
     use Igniter.Mix.Task
 
-    alias Igniter.Project.{Deps, MixProject}
     alias Igniter.Code.Keyword, as: CodeKeyword
+    alias Igniter.Project.{Deps, MixProject}
     alias Rewrite.Source, as: Source
 
     @shortdoc "Install Assay and configure a project via Igniter"

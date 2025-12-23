@@ -1,7 +1,7 @@
 defmodule Assay.MCPTest do
   use ExUnit.Case, async: true
 
-  alias Assay.{MCP, Daemon}
+  alias Assay.{Daemon, MCP}
 
   defmodule FakeRunner do
     def analyze(_config, _opts) do
@@ -11,13 +11,13 @@ defmodule Assay.MCPTest do
           %{
             text: "lib/foo.ex:1: dialyzer warning",
             match_text: "lib/foo.ex:1: dialyzer warning",
-          path: "/tmp/lib/foo.ex",
-          relative_path: "lib/foo.ex",
-          line: 1,
-          column: nil,
-          code: :unknown
-        }
-      ],
+            path: "/tmp/lib/foo.ex",
+            relative_path: "lib/foo.ex",
+            line: 1,
+            column: nil,
+            code: :unknown
+          }
+        ],
         ignored: [],
         ignore_path: nil,
         options: []
@@ -86,7 +86,12 @@ defmodule Assay.MCPTest do
     {_, state, _} =
       MCP.handle_rpc(%{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"}, state)
 
-    params = %{"name" => "assay.analyze", "arguments" => %{"formats" => ["text"]}, "toolCallId" => "abc123"}
+    params = %{
+      "name" => "assay.analyze",
+      "arguments" => %{"formats" => ["text"]},
+      "toolCallId" => "abc123"
+    }
+
     request = %{"jsonrpc" => "2.0", "id" => 3, "method" => "tools/call", "params" => params}
 
     {reply, _state, :continue} = MCP.handle_rpc(request, state)

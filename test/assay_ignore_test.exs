@@ -55,7 +55,9 @@ defmodule Assay.IgnoreTest do
 
       fallback_entry =
         Ignore.decorate(
-          [warning_fixture(tmp_dir, location_file: %{unexpected: true}, message: "fallback path")],
+          [
+            warning_fixture(tmp_dir, location_file: %{unexpected: true}, message: "fallback path")
+          ],
           tmp_dir
         )
         |> hd()

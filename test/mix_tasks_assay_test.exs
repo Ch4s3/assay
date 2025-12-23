@@ -2,6 +2,8 @@ defmodule Mix.Tasks.AssayTest do
   use ExUnit.Case, async: false
 
   alias Assay.TestSupport.{ConfigStub, RunnerStub}
+  alias Mix.Tasks.Assay
+  alias Mix.Tasks.Assay.{Daemon, Mcp, Watch}
 
   defmodule DaemonStub do
     def serve do
@@ -42,7 +44,7 @@ defmodule Mix.Tasks.AssayTest do
     Process.put(:runner_stub_status, :ok)
 
     ExUnit.CaptureIO.capture_io(fn ->
-      Mix.Tasks.Assay.run(["--print-config", "--format", "elixir"])
+      Assay.run(["--print-config", "--format", "elixir"])
     end)
 
     assert_received {:config_opts, [print_config: true, formats: [:elixir]]}
@@ -52,19 +54,19 @@ defmodule Mix.Tasks.AssayTest do
   test "run exits with shutdown status when warnings are reported" do
     Process.put(:runner_stub_status, :warnings)
 
-    assert catch_exit(Mix.Tasks.Assay.run([])) == {:shutdown, 1}
+    assert catch_exit(Assay.run([])) == {:shutdown, 1}
     assert_received {:runner_called, _config, [print_config: false, formats: [:text]]}
   end
 
   test "run raises on unsupported formats" do
     assert_raise Mix.Error, fn ->
-      Mix.Tasks.Assay.run(["--format", "json"])
+      Assay.run(["--format", "json"])
     end
   end
 
   test "run raises when extra arguments are supplied" do
     assert_raise Mix.Error, fn ->
-      Mix.Tasks.Assay.run(["unexpected"])
+      Assay.run(["unexpected"])
     end
   end
 
@@ -72,7 +74,7 @@ defmodule Mix.Tasks.AssayTest do
     Application.put_env(:assay, :daemon_module, DaemonStub)
 
     capture_io(fn ->
-      Mix.Tasks.Assay.Daemon.run([])
+      Daemon.run([])
     end)
 
     assert_received :daemon_served
@@ -82,7 +84,7 @@ defmodule Mix.Tasks.AssayTest do
     Application.put_env(:assay, :mcp_module, MCPStub)
 
     capture_io(fn ->
-      Mix.Tasks.Assay.Mcp.run([])
+      Mcp.run([])
     end)
 
     assert_received :mcp_served
@@ -92,7 +94,7 @@ defmodule Mix.Tasks.AssayTest do
     Application.put_env(:assay, :watch_module, WatchStub)
 
     capture_io(fn ->
-      Mix.Tasks.Assay.Watch.run([])
+      Watch.run([])
     end)
 
     assert_received :watch_started

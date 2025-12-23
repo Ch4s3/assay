@@ -30,13 +30,50 @@ defmodule Assay.Formatter do
     end)
   end
 
+  def format(entries, :llm, opts) do
+    project_root = Keyword.fetch!(opts, :project_root)
+
+    entries
+    |> Enum.map(fn entry ->
+      relative = entry.relative_path || relative_display(entry.path, project_root) || "unknown"
+
+      # Create single-line message by removing newlines and extra whitespace
+      message_single_line =
+        (entry.match_text || entry.text || "Dialyzer warning")
+        |> String.replace("\n", " ")
+        |> String.replace("\r", " ")
+        |> String.replace(~r/\s+/, " ")
+        |> String.trim()
+
+      location =
+        cond do
+          entry.line && entry.column -> "#{relative}:#{entry.line}:#{entry.column}"
+          entry.line -> "#{relative}:#{entry.line}"
+          true -> relative
+        end
+
+      %{
+        code: entry.code |> Atom.to_string(),
+        location: location,
+        file: relative,
+        line: entry.line,
+        column: entry.column,
+        message: message_single_line,
+        severity: warning_severity(entry.code)
+      }
+      |> JSON.encode!()
+    end)
+  end
+
   defp format_text_entry(entry, project_root, opts) do
     relative = entry.relative_path || relative_display(entry.path, project_root) || "nofile"
+
     warning =
       Warning.render(entry,
         relative_path: relative,
         color?: Keyword.get(opts, :color?, false)
       )
+
     location = format_location(relative, entry.line, entry.column)
     code_line = format_code_line(entry.code)
     snippet = format_snippet(entry.path, entry.line, entry.column)
@@ -315,4 +352,13 @@ defmodule Assay.Formatter do
     |> String.replace("\r", "%0D")
     |> String.replace("\n", "%0A")
   end
+
+  defp warning_severity(code) when is_atom(code) do
+    case Atom.to_string(code) do
+      "warn_" <> _ -> "warning"
+      _ -> "info"
+    end
+  end
+
+  defp warning_severity(_), do: "warning"
 end

@@ -17,7 +17,7 @@ defmodule Assay.Config do
     :elixir_lib_path,
     :ignore_file
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [warnings: []]
 
   @type t :: %__MODULE__{
           apps: [atom()],
@@ -27,7 +27,8 @@ defmodule Assay.Config do
           plt_path: binary(),
           build_lib_path: binary(),
           elixir_lib_path: binary(),
-          ignore_file: binary() | nil
+          ignore_file: binary() | nil,
+          warnings: [atom()]
         }
 
   @doc """
@@ -55,6 +56,7 @@ defmodule Assay.Config do
     build_lib_path = Keyword.get(opts, :build_lib_path, default_build_lib_path(project_root))
     elixir_lib_path = Keyword.get(opts, :elixir_lib_path, default_elixir_lib_path())
     ignore_file = Keyword.get(dialyzer_config, :ignore_file, "dialyzer_ignore.exs")
+    warnings = list_option(dialyzer_config, :warnings, [])
     normalized_ignore = normalize_ignore_file(ignore_file, project_root)
 
     %__MODULE__{
@@ -65,7 +67,8 @@ defmodule Assay.Config do
       plt_path: plt_path,
       build_lib_path: build_lib_path,
       elixir_lib_path: elixir_lib_path,
-      ignore_file: normalized_ignore
+      ignore_file: normalized_ignore,
+      warnings: warnings
     }
   end
 
@@ -105,5 +108,12 @@ defmodule Assay.Config do
     value
     |> to_string()
     |> Path.expand(project_root)
+  end
+
+  defp list_option(config, key, default) do
+    case Keyword.get(config, key, default) do
+      value when is_list(value) -> value
+      other -> raise_invalid_value(key, other)
+    end
   end
 end

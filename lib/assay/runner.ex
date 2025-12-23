@@ -3,9 +3,7 @@ defmodule Assay.Runner do
   Executes incremental Dialyzer runs directly via `:dialyzer.run/1`.
   """
 
-  alias Assay.Config
-  alias Assay.Ignore
-  alias Assay.Formatter
+  alias Assay.{Config, Formatter, Ignore}
 
   @type run_result :: :ok | :warnings
 
@@ -109,12 +107,10 @@ defmodule Assay.Runner do
   end
 
   defp run_dialyzer(opts) do
-    try do
-      apply(dialyzer_runner(), :run, [opts])
-    catch
-      {:dialyzer_error, msg} ->
-        raise Mix.Error, IO.iodata_to_binary(msg)
-    end
+    dialyzer_runner().run(opts)
+  catch
+    {:dialyzer_error, msg} ->
+      raise Mix.Error, IO.iodata_to_binary(msg)
   end
 
   defp format_app(app, config) when is_atom(app) do

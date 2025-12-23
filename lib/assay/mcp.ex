@@ -179,6 +179,7 @@ defmodule Assay.MCP do
 
       {:ok, data} ->
         trimmed = String.trim(data || "")
+
         if trimmed == "" do
           loop(state)
         else
@@ -191,7 +192,10 @@ defmodule Assay.MCP do
         :ok
 
       {:error, reason} ->
-        maybe_write(jsonrpc_error(nil, -32_700, "Invalid MCP frame", %{"reason" => inspect(reason)}))
+        maybe_write(
+          jsonrpc_error(nil, -32_700, "Invalid MCP frame", %{"reason" => inspect(reason)})
+        )
+
         loop(state)
     end
   end
@@ -301,27 +305,25 @@ defmodule Assay.MCP do
   defp read_framed_message(headers, first_line) do
     with {:ok, headers} <- read_headers(headers, first_line),
          {:ok, length} <- fetch_content_length(headers),
-         {:ok, body} <- IO.binread(:stdio, length) |> handle_body(length) do
-      {:ok, body}
+         {:ok, _body} = result <- handle_body(IO.binread(:stdio, length), length) do
+      result
     end
   end
 
   defp read_headers(headers, line) do
     trimmed = trim_line(line)
 
-    cond do
-      trimmed == "" ->
-        {:ok, headers}
-
-      true ->
-        with {:ok, updated} <- parse_header_line(trimmed, headers),
-             next <- IO.binread(:stdio, :line) do
-          case next do
-            :eof -> {:error, :unexpected_eof}
-            {:error, reason} -> {:error, reason}
-            data -> read_headers(updated, data)
-          end
+    if trimmed == "" do
+      {:ok, headers}
+    else
+      with {:ok, updated} <- parse_header_line(trimmed, headers),
+           next <- IO.binread(:stdio, :line) do
+        case next do
+          :eof -> {:error, :unexpected_eof}
+          {:error, reason} -> {:error, reason}
+          data -> read_headers(updated, data)
         end
+      end
     end
   end
 

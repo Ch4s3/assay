@@ -68,9 +68,11 @@ defmodule Mix.Tasks.Assay do
     Mix.raise("Unknown format: #{inspect(value)}")
   end
 
-  defp validate_format(format) when format in [:text, :elixir, :github], do: format
+  defp validate_format(format) when format in [:text, :elixir, :github, :llm], do: format
 
   defp validate_format(format) do
-    Mix.raise("Unsupported format #{inspect(format)}. Supported formats: text, elixir, github.")
+    Mix.raise(
+      "Unsupported format #{inspect(format)}. Supported formats: text, elixir, github, llm."
+    )
   end
 end

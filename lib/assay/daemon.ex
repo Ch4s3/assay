@@ -213,21 +213,36 @@ defmodule Assay.Daemon do
   defp normalize_formats(_), do: [:text]
 
   defp warning_payload(entry, %Config{project_root: root}) do
+    # Create single-line message by removing newlines and extra whitespace
+    message_single_line =
+      (entry.match_text || entry.text || "Dialyzer warning")
+      |> String.replace("\n", " ")
+      |> String.replace("\r", " ")
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
+
     %{
       "message" => entry.text,
+      "message_single_line" => message_single_line,
       "match" => entry.match_text,
       "path" => entry.path,
       "relative_path" => entry.relative_path,
       "line" => entry.line,
-      "code" => entry.code |> to_string(),
-      "project_relative" =>
-        case entry.relative_path do
-          nil -> entry.path
-          value -> value
-        end,
+      "column" => entry.column,
+      "code" => entry.code |> Atom.to_string(),
+      "severity" => warning_severity(entry.code),
       "project_root" => root
     }
   end
+
+  defp warning_severity(code) when is_atom(code) do
+    case Atom.to_string(code) do
+      "warn_" <> _ -> "warning"
+      _ -> "info"
+    end
+  end
+
+  defp warning_severity(_), do: "warning"
 
   defp config_payload(%Config{} = config) do
     %{

@@ -183,6 +183,8 @@ defmodule Assay.FormatterTest do
 
     assert result =~ yellow("atom() | [any()]")
     assert result =~ yellow("\"title\"")
+    refute result =~ yellow("atom() | [any()])")
+    refute result =~ yellow("\"title\")")
   end
 
   test "elixir formatter compacts struct diffs and renders printable binaries",
@@ -219,7 +221,9 @@ defmodule Assay.FormatterTest do
     assert result =~ "+  (%Sample{..., :required => \"title\"})"
   end
 
-  test "elixir formatter collapses tuple diffs down to the differing argument", %{tmp_dir: tmp_dir} do
+  test "elixir formatter collapses tuple diffs down to the differing argument", %{
+    tmp_dir: tmp_dir
+  } do
     raw =
       {:warn_failing_call, {~c"lib/foo.ex", {40, 1}},
        {:call,
@@ -348,10 +352,125 @@ defmodule Assay.FormatterTest do
     assert clean =~ "+  :status => :error"
     assert clean =~ "\"<<_ :: 24>>\""
     assert clean =~ "\"<<_ :: 56>>\""
+
+    assert clean =~
+             "+  :metadata => %{:count => \"<<_ :: 32>>\", :extras => %{:source => \"<<_ :: 24>>\"}}"
+
+    assert clean =~ "+  \"<<_ :: 48>>\" => %{\"<<_ :: 56>>\" => 123}"
     assert result =~ yellow("maybe_improper_list()")
     assert result =~ yellow("[%{:unexpected => :entry}]")
     assert result =~ yellow("\"<<_ :: 32>>\"")
-    assert result =~ yellow("\"<<_ :: 24>>\"")
+  end
+
+  test "formatter renders contract diff warnings with spec sections", %{tmp_dir: tmp_dir} do
+    raw =
+      {:warn_contract_not_equal, {~c"lib/foo.ex", {80, 1}},
+       {:contract_diff,
+        [
+          Sample,
+          :foo,
+          1,
+          ~c"@spec foo(integer()) :: atom()",
+          ~c"@spec foo(integer()) :: :ok"
+        ]}}
+
+    entry = %{
+      text: "lib/foo.ex:80: Type specification is not equal to the success typing",
+      match_text: "lib/foo.ex:80: Type specification is not equal to the success typing",
+      raw: raw,
+      path: nil,
+      relative_path: "lib/foo.ex",
+      line: 80,
+      column: 1,
+      code: :warn_contract_not_equal
+    }
+
+    [result] = Formatter.format([entry], :text, project_root: tmp_dir, color?: true)
+    clean = strip_ansi(result)
+
+    assert clean =~ "Contract (@spec):"
+    assert clean =~ "@spec foo(integer()) :: atom()"
+    assert clean =~ "Success typing:"
+    assert clean =~ "@spec foo(integer()) :: :ok"
+    assert clean =~ "Diff (expected -, actual +):"
+    assert result =~ yellow("atom()")
+    assert result =~ yellow(":ok")
+  end
+
+  test "formatter explains invalid contracts with positional details", %{tmp_dir: tmp_dir} do
+    raw =
+      {:warn_contract_types, {~c"lib/foo.ex", {90, 2}},
+       {:invalid_contract,
+        [
+          Sample,
+          :bad_spec,
+          2,
+          {:invalid_contract, {[1, 2], true}},
+          ~c"@spec bad_spec(integer(), atom()) :: {:ok, term()}",
+          ~c"@spec bad_spec(pos_integer(), :ok) :: :ok"
+        ]}}
+
+    entry = %{
+      text: "lib/foo.ex:90: Invalid contract for Sample.bad_spec/2",
+      match_text: "lib/foo.ex:90: Invalid contract for Sample.bad_spec/2",
+      raw: raw,
+      path: nil,
+      relative_path: "lib/foo.ex",
+      line: 90,
+      column: 2,
+      code: :warn_contract_types
+    }
+
+    [result] = Formatter.format([entry], :text, project_root: tmp_dir, color?: true)
+    clean = strip_ansi(result)
+
+    assert clean =~ "Invalid contract for 1st and 2nd arguments and the return type."
+    assert clean =~ "Contract (@spec):"
+    assert clean =~ "Success typing:"
+    assert clean =~ "Diff (expected -, actual +):"
+  end
+
+  test "contract subtype diff keeps parentheses colored", %{tmp_dir: tmp_dir} do
+    raw =
+      {:warn_contract_subtype, {~c"lib/foo.ex", {110, 1}},
+       {:contract_subtype,
+        [
+          Sample,
+          :tight_spec,
+          1,
+          ~c"([integer()]) :: integer() | nil",
+          ~c"(maybe_improper_list()) :: any()"
+        ]}}
+
+    entry = %{
+      text: "lib/foo.ex:110: Spec is a subtype of success typing",
+      match_text: "lib/foo.ex:110: Spec is a subtype of success typing",
+      raw: raw,
+      path: nil,
+      relative_path: "lib/foo.ex",
+      line: 110,
+      column: 1,
+      code: :warn_contract_subtype
+    }
+
+    [result] = Formatter.format([entry], :text, project_root: tmp_dir, color?: true)
+    clean = strip_ansi(result)
+
+    assert result =~ yellow("[integer()]")
+    assert result =~ yellow("maybe_improper_list()")
+    assert result =~ yellow("integer() | nil")
+    assert result =~ yellow("any()")
+    refute result =~ yellow("[integer()])")
+    refute result =~ yellow("maybe_improper_list())")
+
+    expected_line = find_line(clean, "([integer()]) :: integer() | nil")
+    actual_line = find_line(clean, "(maybe_improper_list()) :: any()")
+
+    assert expected_line
+    assert actual_line
+
+    assert balanced_delimiters?(expected_line)
+    assert balanced_delimiters?(actual_line)
   end
 
   test "github formatter emits workflow command" do
@@ -369,6 +488,37 @@ defmodule Assay.FormatterTest do
 
     assert result == ["::warning file=lib/foo.ex,line=10::warning text"]
   end
+
+  defp find_line(text, needle) do
+    text
+    |> String.split("\n")
+    |> Enum.find(&String.contains?(&1, needle))
+  end
+
+  defp balanced_delimiters?(line) do
+    result =
+      line
+      |> String.graphemes()
+      |> Enum.reduce_while([], fn
+        "(", stack -> {:cont, ["(" | stack]}
+        "[", stack -> {:cont, ["[" | stack]}
+        "{", stack -> {:cont, ["{" | stack]}
+        ")", stack -> pop_delimiter(stack, ")")
+        "]", stack -> pop_delimiter(stack, "]")
+        "}", stack -> pop_delimiter(stack, "}")
+        _, stack -> {:cont, stack}
+      end)
+
+    case result do
+      :error -> false
+      stack -> stack == []
+    end
+  end
+
+  defp pop_delimiter(["(" | rest], ")"), do: {:cont, rest}
+  defp pop_delimiter(["[" | rest], "]"), do: {:cont, rest}
+  defp pop_delimiter(["{" | rest], "}"), do: {:cont, rest}
+  defp pop_delimiter(_stack, _close), do: {:halt, :error}
 
   defp yellow(text) do
     prefix =

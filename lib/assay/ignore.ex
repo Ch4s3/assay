@@ -138,7 +138,8 @@ defmodule Assay.Ignore do
   end
 
   defp format_warning_text(warning) do
-    apply(dialyzer_module(), :format_warning, [warning, [filename_opt: :fullpath]])
+    warning
+    |> dialyzer_module().format_warning(filename_opt: :fullpath)
     |> IO.iodata_to_binary()
   end
 

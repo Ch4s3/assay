@@ -6,7 +6,7 @@ defmodule Assay.MCPIntegrationTest do
   """
   use ExUnit.Case, async: false
 
-  alias Assay.{MCP, Daemon}
+  alias Assay.{Daemon, MCP}
 
   @moduletag :integration
 
@@ -78,39 +78,53 @@ defmodule Assay.MCPIntegrationTest do
   defp server_loop(state, parent) do
     receive do
       {:stdin, line} ->
-        trimmed = String.trim_trailing(line, "\n")
-
-        if trimmed != "" do
-          case JSON.decode(trimmed) do
-            {:ok, message} ->
-              {reply, new_state, action} = MCP.handle_rpc(message, state)
-
-              if reply do
-                response_json = JSON.encode!(reply) <> "\n"
-                send(parent, {:stdout, response_json})
-              end
-
-              case action do
-                :continue -> server_loop(new_state, parent)
-                :stop -> :ok
-              end
-
-            {:error, _} ->
-              reply = %{
-                "jsonrpc" => "2.0",
-                "error" => %{"code" => -32_700, "message" => "Invalid JSON"}
-              }
-              send(parent, {:stdout, JSON.encode!(reply) <> "\n"})
-              server_loop(state, parent)
-          end
-        else
-          server_loop(state, parent)
+        case process_input(line, state, parent) do
+          {:continue, next_state} -> server_loop(next_state, parent)
+          :stop -> :ok
         end
 
       :stop ->
         :ok
     end
   end
+
+  defp process_input(line, state, parent) do
+    trimmed = String.trim_trailing(line, "\n")
+
+    if trimmed == "" do
+      {:continue, state}
+    else
+      case JSON.decode(trimmed) do
+        {:ok, message} ->
+          {reply, new_state, action} = MCP.handle_rpc(message, state)
+          send_reply(reply, parent)
+          handle_action(action, new_state)
+
+        {:error, _} ->
+          send_invalid_json(parent)
+          {:continue, state}
+      end
+    end
+  end
+
+  defp send_reply(nil, _parent), do: :ok
+
+  defp send_reply(payload, parent) do
+    response_json = JSON.encode!(payload) <> "\n"
+    send(parent, {:stdout, response_json})
+  end
+
+  defp send_invalid_json(parent) do
+    reply = %{
+      "jsonrpc" => "2.0",
+      "error" => %{"code" => -32_700, "message" => "Invalid JSON"}
+    }
+
+    send(parent, {:stdout, JSON.encode!(reply) <> "\n"})
+  end
+
+  defp handle_action(:continue, new_state), do: {:continue, new_state}
+  defp handle_action(:stop, _state), do: :stop
 
   test "full MCP handshake and tool call", %{state: state} do
     messages = [

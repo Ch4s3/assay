@@ -15,6 +15,7 @@ defmodule Assay.DaemonTest do
             path: "/tmp/lib/foo.ex",
             relative_path: "lib/foo.ex",
             line: 1,
+            column: nil,
             code: :unknown
           }
         ],
@@ -111,10 +112,16 @@ defmodule Assay.DaemonTest do
     }
 
     {_, overridden_state, :continue} =
-      Daemon.handle_rpc(%{"jsonrpc" => "2.0", "id" => 1, "method" => "assay/setConfig", "params" => overrides}, state)
+      Daemon.handle_rpc(
+        %{"jsonrpc" => "2.0", "id" => 1, "method" => "assay/setConfig", "params" => overrides},
+        state
+      )
 
     {get_reply, _final_state, :continue} =
-      Daemon.handle_rpc(%{"jsonrpc" => "2.0", "id" => 2, "method" => "assay/getConfig"}, overridden_state)
+      Daemon.handle_rpc(
+        %{"jsonrpc" => "2.0", "id" => 2, "method" => "assay/getConfig"},
+        overridden_state
+      )
 
     config_payload = get_reply["result"]["config"]
     assert config_payload["apps"] == ["assay"]
@@ -127,7 +134,13 @@ defmodule Assay.DaemonTest do
     state = Daemon.new(config: config, runner: FakeRunner)
 
     params = %{"config" => %{"unknown" => "value"}}
-    request = %{"jsonrpc" => "2.0", "id" => "bad", "method" => "assay/setConfig", "params" => params}
+
+    request = %{
+      "jsonrpc" => "2.0",
+      "id" => "bad",
+      "method" => "assay/setConfig",
+      "params" => params
+    }
 
     {reply, new_state, :continue} = Daemon.handle_rpc(request, state)
 
