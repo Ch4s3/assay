@@ -65,7 +65,8 @@ defmodule Assay.Watch do
         assay: assay_mod,
         watcher: watcher,
         fs_mod: fs_mod,
-        running: false
+        running: false,
+        analysis_task: nil
       }
 
     # Monitor the watcher process
@@ -73,7 +74,7 @@ defmodule Assay.Watch do
 
     state =
       state
-      |> execute_run("Initial run")
+      |> execute_run_async("Initial run")
 
     if run_once? do
       stop_watcher(fs_mod, watcher)
@@ -95,13 +96,34 @@ defmodule Assay.Watch do
         loop(maybe_schedule(path, state), ref)
 
       :run ->
-        state
-        |> execute_run("Change detected")
-        |> then(&loop(&1, ref))
+        loop(execute_run_async(state, "Change detected"), ref)
+
+      {task_ref, result} when is_reference(task_ref) ->
+        if not is_nil(state.analysis_task) and task_ref == state.analysis_task do
+          case result do
+            :ok -> Mix.shell().info("[Assay] No warnings")
+            :warnings -> Mix.shell().info("[Assay] Warnings detected")
+            :error -> Mix.shell().error("[Assay] Analysis failed")
+          end
+          # Clear the running flag and task reference
+          new_state = %{state | running: false, analysis_task: nil}
+          loop(new_state, ref)
+        else
+          loop(state, ref)
+        end
 
       {:DOWN, ^ref, :process, _pid, reason} ->
         Mix.shell().error("[Assay] File watcher process crashed: #{inspect(reason)}")
         exit({:shutdown, :watcher_crashed})
+
+      {:DOWN, task_ref, :process, _pid, _reason} when not is_nil(state.analysis_task) and task_ref == state.analysis_task ->
+        # Task completed normally (DOWN message after result)
+        new_state = %{state | running: false, analysis_task: nil}
+        loop(new_state, ref)
+
+      _other ->
+        # Ignore unexpected messages (could be from other processes)
+        loop(state, ref)
     end
   end
 
@@ -143,6 +165,43 @@ defmodule Assay.Watch do
       end
 
       %{running_state | running: false}
+    end
+  end
+
+  defp execute_run_async(state, reason) do
+    cancel_timer(state.timer)
+
+    # If a run is already in progress, skip this one (debounce will reschedule)
+    if state.running do
+      Mix.shell().info("[Assay] Run already in progress, skipping...")
+      state
+    else
+      Mix.shell().info("[Assay] #{reason}, running incremental Dialyzer...")
+
+      # Run analysis in a separate task so we can continue receiving file events
+      task =
+        Task.async(fn ->
+          try do
+            state.assay.run()
+          rescue
+            error ->
+              Mix.shell().error(
+                "[Assay] Error running analysis: #{Exception.format(:error, error, __STACKTRACE__)}"
+              )
+
+              :error
+          catch
+            kind, reason ->
+              Mix.shell().error(
+                "[Assay] Error running analysis: #{Exception.format(kind, reason, __STACKTRACE__)}"
+              )
+
+              :error
+          end
+        end)
+
+      # Store the task ref so we can match on completion messages
+      %{state | running: true, timer: nil, analysis_task: task.ref}
     end
   end
 
@@ -228,7 +287,14 @@ defmodule Assay.Watch do
 
   defp dir_match?(path, root) do
     relative = relative_to_root(path, root)
-    Enum.any?(@default_dirs, &String.starts_with?(relative, &1))
+    # Check if path starts with any of the default dirs
+    # For umbrella projects, files in apps/*/lib/ should match
+    matches = Enum.any?(@default_dirs, fn dir ->
+      String.starts_with?(relative, dir <> "/") or
+      relative == dir or
+      String.starts_with?(relative, dir)
+    end)
+    matches
   end
 
   defp relative_to_root(path, root) do

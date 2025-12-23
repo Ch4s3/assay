@@ -238,4 +238,35 @@ defmodule Assay.MCPIntegrationTest do
     assert response["error"]["code"] == -32_601
     assert response["id"] == 1
   end
+
+  test "serve consumes stdio stream and writes framed responses", %{state: state} do
+    messages = [
+      %{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"},
+      %{"jsonrpc" => "2.0", "id" => 2, "method" => "tools/list"}
+    ]
+
+    input =
+      messages
+      |> Enum.map(fn msg -> JSON.encode!(msg) <> "\n" end)
+      |> Enum.join()
+
+    {:ok, io} = StringIO.open(input)
+
+    previous_shell = Mix.shell()
+
+    task =
+      Task.async(fn ->
+        Process.group_leader(self(), io)
+        MCP.serve(daemon: state.daemon)
+      end)
+
+    assert :ok == Task.await(task, 1000)
+    Mix.shell(previous_shell)
+
+    {_remaining_input, output} = StringIO.contents(io)
+
+    assert output =~ "Content-Length:"
+    assert output =~ "\"protocolVersion\""
+    assert output =~ "\"tools\""
+  end
 end

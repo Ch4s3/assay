@@ -4,7 +4,50 @@ defmodule Assay.Formatter do
   alias Assay.Formatter.Warning
 
   @doc """
-  Formats decorated warnings into strings for the requested format.
+  Formats decorated Dialyzer warnings into strings for the requested output format.
+
+  ## Formats
+
+  - `:text` - Human-readable text format with code snippets and location information
+  - `:elixir` - Same as `:text` but with pretty-printed Erlang terms (requires `erlex` dependency)
+  - `:github` - GitHub Actions workflow annotations (`::warning file=...::message`)
+  - `:llm` - JSON format optimized for LLM consumption (single-line messages, structured data)
+
+  ## Options
+
+  - `:project_root` (required) - The root directory of the project for resolving relative paths
+
+  ## Examples
+
+      iex> entry = %{
+      ...>   text: "Function will never return",
+      ...>   match_text: "Function will never return",
+      ...>   path: "lib/bar.ex",
+      ...>   relative_path: "lib/bar.ex",
+      ...>   line: 5,
+      ...>   code: :warn_not_called
+      ...> }
+      iex> [result] = Assay.Formatter.format([entry], :github, project_root: "/project")
+      iex> result
+      "::warning file=lib/bar.ex,line=5::Function will never return"
+
+      iex> entry = %{
+      ...>   text: "Type mismatch",
+      ...>   match_text: "Type mismatch",
+      ...>   path: "lib/baz.ex",
+      ...>   relative_path: "lib/baz.ex",
+      ...>   line: 10,
+      ...>   column: 5,
+      ...>   code: :warn_matching
+      ...> }
+      iex> [result] = Assay.Formatter.format([entry], :llm, project_root: "/project")
+      iex> {:ok, json} = JSON.decode(result)
+      iex> json["code"]
+      "warn_matching"
+      iex> json["line"]
+      10
+      iex> json["severity"]
+      "warning"
   """
   @spec format([map()], atom(), keyword()) :: [String.t()]
   def format(entries, :text, opts) do
@@ -25,7 +68,7 @@ defmodule Assay.Formatter do
     Enum.map(entries, fn entry ->
       path = entry.relative_path || relative_display(entry.path, project_root) || "unknown"
       line = entry.line || 0
-      message = github_escape(entry.match_text || entry.text || "Dialyzer warning")
+      message = entry |> entry_message() |> github_escape()
       "::warning file=#{path},line=#{line}::#{message}"
     end)
   end
@@ -39,17 +82,21 @@ defmodule Assay.Formatter do
 
       # Create single-line message by removing newlines and extra whitespace
       message_single_line =
-        (entry.match_text || entry.text || "Dialyzer warning")
+        entry
+        |> entry_message()
         |> String.replace("\n", " ")
         |> String.replace("\r", " ")
         |> String.replace(~r/\s+/, " ")
         |> String.trim()
 
       location =
-        cond do
-          entry.line && entry.column -> "#{relative}:#{entry.line}:#{entry.column}"
-          entry.line -> "#{relative}:#{entry.line}"
-          true -> relative
+        case {entry.line, entry.column} do
+          {line, column} when not is_nil(line) and not is_nil(column) ->
+            "#{relative}:#{line}:#{column}"
+          {line, _} when not is_nil(line) ->
+            "#{relative}:#{line}"
+          _ ->
+            relative
         end
 
       %{
@@ -88,6 +135,10 @@ defmodule Assay.Formatter do
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
+  end
+
+  defp entry_message(entry) do
+    entry.match_text || entry.text || "Dialyzer warning"
   end
 
   defp format_location(relative, line, column) do

@@ -7,6 +7,8 @@ defmodule Mix.Tasks.Assay.Watch do
   @impl true
   def run(_args) do
     Mix.Task.run("app.start")
+    # Ensure file_system application is started
+    Application.ensure_all_started(:file_system)
     watch_module().run()
   end
 
