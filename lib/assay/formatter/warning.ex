@@ -38,6 +38,11 @@ defmodule Assay.Formatter.Warning do
   defmodule Result do
     @moduledoc false
     defstruct [:headline, details: []]
+
+    @type t :: %__MODULE__{
+            headline: String.t() | nil,
+            details: [String.t()]
+          }
   end
 
   alias __MODULE__.Result
@@ -267,7 +272,7 @@ defmodule Assay.Formatter.Warning do
   defp trim_to_reason(line) do
     case String.split(line, @will_never_return, parts: 2) do
       [_prefix, rest] ->
-        suffix = String.trim_leading(rest || "")
+        suffix = String.trim_leading(rest)
         @will_never_return <> " " <> suffix
 
       _ ->

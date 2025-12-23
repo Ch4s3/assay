@@ -178,7 +178,7 @@ defmodule Assay.MCP do
         loop(state)
 
       {:ok, data} ->
-        trimmed = String.trim(data || "")
+        trimmed = String.trim(data)
 
         if trimmed == "" do
           loop(state)

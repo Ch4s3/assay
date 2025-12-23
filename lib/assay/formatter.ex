@@ -155,8 +155,6 @@ defmodule Assay.Formatter do
 
   defp fetch_line(_contents, _line), do: nil
 
-  defp sanitize_line(nil), do: ""
-
   defp sanitize_line(line) do
     line
     |> String.trim_trailing("\n")
@@ -255,10 +253,12 @@ defmodule Assay.Formatter do
     end
   end
 
+  @erlex_module :"Elixir.Erlex"
+
   defp run_erlex(chunk) do
-    if function_exported?(Erlex, :pretty_print, 1) do
+    if :erlang.function_exported(@erlex_module, :pretty_print, 1) do
       try do
-        {:ok, Erlex.pretty_print(chunk)}
+        {:ok, :erlang.apply(@erlex_module, :pretty_print, [chunk])}
       rescue
         _ -> :error
       catch
@@ -273,7 +273,7 @@ defmodule Assay.Formatter do
     Enum.flat_map(lines, fn line ->
       if reason_line?(line) do
         {before, after_part} = split_on_phrase(line, "will never return")
-        trimmed_before = String.trim_trailing(before || "")
+        trimmed_before = String.trim_trailing(before)
 
         reason =
           ["will never return", after_part]

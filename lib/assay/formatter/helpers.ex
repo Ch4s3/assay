@@ -40,10 +40,12 @@ defmodule Assay.Formatter.Helpers do
   defp normalize_to_string(value, _original) when is_list(value), do: IO.chardata_to_string(value)
   defp normalize_to_string(value, _original), do: inspect(value)
 
+  @erlex_module :"Elixir.Erlex"
+
   defp maybe_pretty_erlang(text) when is_binary(text) do
-    if Code.ensure_loaded?(Erlex) do
+    if :erlang.function_exported(@erlex_module, :pretty_print, 1) do
       try do
-        Erlex.pretty_print(text)
+        :erlang.apply(@erlex_module, :pretty_print, [text])
       rescue
         _ -> text
       catch
@@ -293,7 +295,7 @@ defmodule Assay.Formatter.Helpers do
                                                                   {:ok, map, order_set,
                                                                    order_list} ->
         case split_key_value(entry) do
-          {key, value} ->
+          {key, value} when is_binary(value) ->
             normalized = String.trim(key)
             updated_map = Map.put(map, normalized, String.trim(value))
 
@@ -568,13 +570,8 @@ defmodule Assay.Formatter.Helpers do
   end
 
   defp map_entry_matches?(entry, field) do
-    case split_key_value(entry) do
-      {key, _value} when is_binary(key) ->
-        String.trim(key) <> " => " == field
-
-      _ ->
-        false
-    end
+    {key, _value} = split_key_value(entry)
+    String.trim(key) <> " => " == field
   end
 
   defp shrink_struct(line) do
@@ -742,6 +739,7 @@ defmodule Assay.Formatter.Helpers do
     text
     |> replace_printable_binaries()
     |> stringify_bit_specs()
+    |> normalize_binary_commas()
   end
 
   defp replace_printable_binaries(text) do
@@ -765,6 +763,12 @@ defmodule Assay.Formatter.Helpers do
   defp stringify_bit_specs(text) do
     Regex.replace(~r/(?<!")<<\s*_+[^>]*::[^>]*>>(?!")/, text, fn match ->
       inspect(String.trim(match))
+    end)
+  end
+
+  defp normalize_binary_commas(text) do
+    Regex.replace(~r/<<[^<>]+>>/, text, fn match ->
+      Regex.replace(~r/(\d),(?=\d)/, match, "\\1, ")
     end)
   end
 
@@ -1006,12 +1010,9 @@ defmodule Assay.Formatter.Helpers do
     String.starts_with?(text, "(") and String.ends_with?(text, ")") and byte_size(text) > 1
   end
 
-  defp wrap_parentheses([]), do: []
-
   defp wrap_parentheses([single]), do: ["(" <> single <> ")"]
 
-  defp wrap_parentheses(lines) do
-    [first | rest] = lines
+  defp wrap_parentheses([first | rest]) do
     {middle, [last]} = Enum.split(rest, length(rest) - 1)
     ["(" <> first] ++ middle ++ [last <> ")"]
   end
@@ -1044,18 +1045,11 @@ defmodule Assay.Formatter.Helpers do
     end
   end
 
-  defp reattach_ansi([], _prefix, _suffix), do: []
+  defp reattach_ansi([single], prefix, suffix), do: [prefix <> single <> suffix]
 
-  defp reattach_ansi(lines, prefix, suffix) do
-    case lines do
-      [single] ->
-        [prefix <> single <> suffix]
-
-      _ ->
-        [first | rest] = lines
-        {middle, [last]} = Enum.split(rest, length(rest) - 1)
-        [prefix <> first] ++ middle ++ [last <> suffix]
-    end
+  defp reattach_ansi([first | rest], prefix, suffix) do
+    {middle, [last]} = Enum.split(rest, length(rest) - 1)
+    [prefix <> first] ++ middle ++ [last <> suffix]
   end
 
   defp attach_suffix(lines, suffix) do

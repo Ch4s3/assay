@@ -387,5 +387,11 @@ defmodule Assay.WatchTest do
     assert Keyword.has_key?(opts, :dirs)
   end
 
-  defp capture_io(fun), do: ExUnit.CaptureIO.capture_io(fun)
+  defp capture_io(fun) do
+    ExUnit.CaptureIO.capture_io(fn ->
+      ExUnit.CaptureIO.capture_io(:standard_error, fn ->
+        fun.()
+      end)
+    end)
+  end
 end

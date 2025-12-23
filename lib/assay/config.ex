@@ -19,6 +19,12 @@ defmodule Assay.Config do
   ]
   defstruct @enforce_keys ++ [warnings: []]
 
+  @optional_apps [
+    {:erlex, :"Elixir.Erlex"},
+    {:igniter, :"Elixir.Igniter"},
+    {:rewrite, :"Elixir.Rewrite.Source"}
+  ]
+
   @type t :: %__MODULE__{
           apps: [atom()],
           warning_apps: [atom()],
@@ -47,7 +53,11 @@ defmodule Assay.Config do
       |> Keyword.get(:assay, [])
       |> Keyword.get(:dialyzer, [])
 
-    apps = fetch_list!(dialyzer_config, :apps)
+    apps =
+      dialyzer_config
+      |> fetch_list!(:apps)
+      |> include_optional_apps()
+
     warning_apps = fetch_list!(dialyzer_config, :warning_apps)
 
     project_root = Keyword.get(opts, :project_root, File.cwd!())
@@ -100,6 +110,13 @@ defmodule Assay.Config do
   defp default_elixir_lib_path do
     :code.lib_dir(:elixir)
     |> to_string()
+  end
+
+  defp include_optional_apps(apps) do
+    optional =
+      for {app, module} <- @optional_apps, Code.ensure_loaded?(module), do: app
+
+    Enum.uniq(apps ++ optional)
   end
 
   defp normalize_ignore_file(value, _project_root) when value in [nil, false], do: nil

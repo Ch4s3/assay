@@ -19,7 +19,7 @@ defmodule Assay.ConfigTest do
   test "from_mix_project builds a normalized config struct", %{tmp_dir: tmp_dir} do
     config = Config.from_mix_project(project_root: tmp_dir)
 
-    assert config.apps == [:demo]
+    assert Enum.sort(config.apps) == Enum.sort([:demo, :erlex, :igniter, :rewrite])
     assert config.warning_apps == [:demo_warn]
     assert config.cache_dir == Path.join(tmp_dir, "_build/assay")
     assert config.plt_path == Path.join(tmp_dir, "_build/assay/assay.incremental.plt")
