@@ -85,6 +85,27 @@ defmodule Assay.ConfigTest do
     assert [%{selector: :current, apps: [:selector_demo]}] = config.warning_app_sources
   end
 
+  @tag project_module: __MODULE__.DialyzerFlagsProject
+  test "from_mix_project parses dialyzer flag overrides", %{tmp_dir: tmp_dir} do
+    config =
+      Config.from_mix_project(
+        project_root: tmp_dir,
+        dialyzer_flags: ["-Wunderspecs"]
+      )
+
+    assert config.dialyzer_flags == [
+             "--statistics",
+             {"--output_plt", "priv/assay/custom.plt"},
+             "-Wunderspecs"
+           ]
+
+    assert config.dialyzer_flag_options == [timing: true, warnings: [:underspecs]]
+
+    expected_output = Path.expand("priv/assay/custom.plt", tmp_dir)
+    assert config.dialyzer_output_plt == expected_output
+    assert config.dialyzer_init_plt == nil
+  end
+
   defmodule ValidProject do
     def project do
       [
@@ -165,6 +186,27 @@ defmodule Assay.ConfigTest do
           dialyzer: [
             apps: [:project_plus_deps],
             warning_apps: [:current]
+          ]
+        ]
+      ]
+    end
+
+    def application, do: []
+  end
+
+  defmodule DialyzerFlagsProject do
+    def project do
+      [
+        app: :demo,
+        version: "0.1.0",
+        assay: [
+          dialyzer: [
+            apps: [:demo],
+            warning_apps: [:demo],
+            dialyzer_flags: [
+              "--statistics",
+              {"--output_plt", "priv/assay/custom.plt"}
+            ]
           ]
         ]
       ]

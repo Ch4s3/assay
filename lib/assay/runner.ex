@@ -80,7 +80,11 @@ defmodule Assay.Runner do
   @doc false
   @spec dialyzer_options(Config.t()) :: keyword()
   def dialyzer_options(%Config{} = config) do
-    plt = String.to_charlist(config.plt_path)
+    init_plt = config.dialyzer_init_plt || config.plt_path
+    output_plt = config.dialyzer_output_plt || config.plt_path
+
+    plt_chars = String.to_charlist(init_plt)
+    output_chars = String.to_charlist(output_plt)
 
     base_opts = [
       {:analysis_type, :incremental},
@@ -88,16 +92,19 @@ defmodule Assay.Runner do
       {:from, :byte_code},
       {:get_warnings, true},
       {:report_mode, :quiet},
-      {:plts, [plt]},
-      {:output_plt, plt},
+      {:plts, [plt_chars]},
+      {:output_plt, output_chars},
       {:files_rec, charlist_paths(config, config.apps)},
       {:warning_files_rec, charlist_paths(config, config.warning_apps)}
     ]
 
-    case config.warnings do
-      [] -> base_opts
-      warnings -> base_opts ++ [{:warnings, warnings}]
-    end
+    opts_with_warnings =
+      case config.warnings do
+        [] -> base_opts
+        warnings -> base_opts ++ [{:warnings, warnings}]
+      end
+
+    opts_with_warnings ++ config.dialyzer_flag_options
   end
 
   defp charlist_paths(config, apps) do
@@ -209,7 +216,10 @@ defmodule Assay.Runner do
         warning_apps: config.warning_apps,
         cache_dir: config.cache_dir,
         plt_path: config.plt_path,
-        ignore_file: config.ignore_file
+        ignore_file: config.ignore_file,
+        dialyzer_flags: config.dialyzer_flags,
+        dialyzer_init_plt: config.dialyzer_init_plt,
+        dialyzer_output_plt: config.dialyzer_output_plt
       }
 
       printable =

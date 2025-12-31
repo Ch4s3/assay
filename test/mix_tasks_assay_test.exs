@@ -62,6 +62,17 @@ defmodule Mix.Tasks.AssayTest do
     assert Keyword.get(runner_opts, :formats) == [:elixir]
   end
 
+  test "run forwards dialyzer flag overrides" do
+    Process.put(:runner_stub_status, :ok)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      Assay.run(["--dialyzer-flag=--statistics", "--dialyzer-flag=-Wunderspecs"])
+    end)
+
+    assert_received {:config_opts, opts}
+    assert Keyword.get(opts, :dialyzer_flags) == ["--statistics", "-Wunderspecs"]
+  end
+
   test "run accepts symbolic app selectors from CLI" do
     Process.put(:runner_stub_status, :ok)
 

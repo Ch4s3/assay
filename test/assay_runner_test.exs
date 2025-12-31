@@ -50,6 +50,24 @@ defmodule Assay.RunnerTest do
     assert Keyword.fetch!(options, :warnings) == [:overspecs, :underspecs]
   end
 
+  test "dialyzer options merge raw dialyzer flag overrides", %{tmp_dir: tmp_dir} do
+    init_override = Path.join(tmp_dir, "custom-input.plt")
+    output_override = Path.join(tmp_dir, "custom-output.plt")
+    include_dir = Path.join(tmp_dir, "includes") |> String.to_charlist()
+
+    config =
+      config_fixture(
+        dialyzer_flag_options: [include_dirs: [include_dir]],
+        dialyzer_init_plt: init_override,
+        dialyzer_output_plt: output_override
+      )
+
+    options = Runner.dialyzer_options(config)
+    assert Keyword.fetch!(options, :plts) == [String.to_charlist(init_override)]
+    assert Keyword.fetch!(options, :output_plt) == String.to_charlist(output_override)
+    assert Keyword.fetch!(options, :include_dirs) == [include_dir]
+  end
+
   test "dialyzer options resolve project apps via build lib path", %{tmp_dir: tmp_dir} do
     build_lib_path = Path.join(tmp_dir, "_build/dev/lib")
     sample_app_ebin = Path.join(build_lib_path, "sample_proj/ebin")
@@ -314,6 +332,10 @@ defmodule Assay.RunnerTest do
       warnings: [],
       app_sources: [],
       warning_app_sources: [],
+      dialyzer_flags: [],
+      dialyzer_flag_options: [],
+      dialyzer_init_plt: nil,
+      dialyzer_output_plt: nil,
       discovery_info: %{
         project_apps: [:kernel],
         dependency_apps: [],

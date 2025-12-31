@@ -19,9 +19,16 @@ defmodule Mix.Tasks.Assay do
   end
 
   defp parse_args(args) do
+    {raw_flag_values, remaining_args} = extract_dialyzer_flags(args)
+
     {opts, argv, invalid} =
-      OptionParser.parse(args,
-        strict: [print_config: :boolean, format: :string, apps: :string, warning_apps: :string],
+      OptionParser.parse(remaining_args,
+        strict: [
+          print_config: :boolean,
+          format: :string,
+          apps: :string,
+          warning_apps: :string
+        ],
         aliases: [f: :format]
       )
 
@@ -44,12 +51,15 @@ defmodule Mix.Tasks.Assay do
     apps_override = parse_app_option(Keyword.get_values(opts, :apps))
     warning_override = parse_app_option(Keyword.get_values(opts, :warning_apps))
 
+    flag_overrides = if raw_flag_values == [], do: nil, else: raw_flag_values
+
     cli_opts =
       []
       |> Keyword.put(:print_config, Keyword.get(opts, :print_config, false))
       |> Keyword.put(:formats, normalized_formats)
       |> maybe_put(:apps, apps_override)
       |> maybe_put(:warning_apps, warning_override)
+      |> maybe_put(:dialyzer_flags, flag_overrides)
 
     if argv != [] do
       Mix.raise("Unexpected arguments: #{Enum.join(argv, ", ")}")
@@ -96,4 +106,21 @@ defmodule Mix.Tasks.Assay do
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp extract_dialyzer_flags(args), do: do_extract_flags(args, [], [])
+
+  defp do_extract_flags([], flags, rest), do: {Enum.reverse(flags), Enum.reverse(rest)}
+
+  defp do_extract_flags(["--dialyzer-flag=" <> value | tail], flags, rest),
+    do: do_extract_flags(tail, [value | flags], rest)
+
+  defp do_extract_flags(["--dialyzer-flag", value | tail], flags, rest),
+    do: do_extract_flags(tail, [value | flags], rest)
+
+  defp do_extract_flags(["--dialyzer-flag"], _flags, _rest) do
+    Mix.raise("--dialyzer-flag expects a value (try --dialyzer-flag=\"--statistics\")")
+  end
+
+  defp do_extract_flags([arg | tail], flags, rest),
+    do: do_extract_flags(tail, flags, [arg | rest])
 end

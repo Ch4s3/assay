@@ -7,6 +7,8 @@ defmodule Assay.Config do
   runner can work with a single struct.
   """
 
+  alias Assay.DialyzerFlags
+
   @enforce_keys [
     :apps,
     :warning_apps,
@@ -18,7 +20,16 @@ defmodule Assay.Config do
     :ignore_file
   ]
   defstruct @enforce_keys ++
-              [warnings: [], app_sources: [], warning_app_sources: [], discovery_info: %{}]
+              [
+                warnings: [],
+                app_sources: [],
+                warning_app_sources: [],
+                discovery_info: %{},
+                dialyzer_flags: [],
+                dialyzer_flag_options: [],
+                dialyzer_init_plt: nil,
+                dialyzer_output_plt: nil
+              ]
 
   @optional_apps [
     {:erlex, :"Elixir.Erlex"},
@@ -38,7 +49,11 @@ defmodule Assay.Config do
           warnings: [atom()],
           app_sources: list(),
           warning_app_sources: list(),
-          discovery_info: map()
+          discovery_info: map(),
+          dialyzer_flags: term(),
+          dialyzer_flag_options: keyword(),
+          dialyzer_init_plt: binary() | nil,
+          dialyzer_output_plt: binary() | nil
         }
 
   @doc """
@@ -71,6 +86,8 @@ defmodule Assay.Config do
 
     raw_apps = list_override(opts, dialyzer_config, :apps)
     raw_warning_apps = list_override(opts, dialyzer_config, :warning_apps)
+    raw_config_flags = normalize_flag_list(Keyword.get(dialyzer_config, :dialyzer_flags, []))
+    cli_flag_list = normalize_flag_list(Keyword.get(opts, :dialyzer_flags, []))
 
     {apps_base, app_sources} = resolve_app_selectors(raw_apps, context)
     {warning_apps, warning_sources} = resolve_app_selectors(raw_warning_apps, context)
@@ -80,6 +97,23 @@ defmodule Assay.Config do
     ignore_file = Keyword.get(dialyzer_config, :ignore_file, "dialyzer_ignore.exs")
     warnings = list_option(dialyzer_config, :warnings, [])
     normalized_ignore = normalize_ignore_file(ignore_file, project_root)
+
+    config_flag_info = DialyzerFlags.parse(raw_config_flags, :config, project_root)
+    cli_flag_info = DialyzerFlags.parse(cli_flag_list, :cli, project_root)
+
+    dialyzer_flags = raw_config_flags ++ cli_flag_list
+
+    dialyzer_flag_options = config_flag_info.options ++ cli_flag_info.options
+
+    dialyzer_init_plt =
+      cli_flag_info.init_plt ||
+        config_flag_info.init_plt
+        |> maybe_charlist_to_string()
+
+    dialyzer_output_plt =
+      cli_flag_info.output_plt ||
+        config_flag_info.output_plt
+        |> maybe_charlist_to_string()
 
     %__MODULE__{
       apps: apps,
@@ -93,6 +127,10 @@ defmodule Assay.Config do
       warnings: warnings,
       app_sources: app_sources,
       warning_app_sources: warning_sources,
+      dialyzer_flags: dialyzer_flags,
+      dialyzer_flag_options: dialyzer_flag_options,
+      dialyzer_init_plt: dialyzer_init_plt,
+      dialyzer_output_plt: dialyzer_output_plt,
       discovery_info: %{
         project_apps: context.project_apps,
         dependency_apps: context.dependency_apps,
@@ -323,4 +361,11 @@ defmodule Assay.Config do
   defp literal_app(value) when is_list(value), do: List.to_string(value)
 
   defp literal_app(value), do: value
+
+  defp normalize_flag_list(value) when is_list(value), do: value
+  defp normalize_flag_list(nil), do: []
+  defp normalize_flag_list(value), do: [value]
+
+  defp maybe_charlist_to_string(nil), do: nil
+  defp maybe_charlist_to_string(value), do: to_string(value)
 end

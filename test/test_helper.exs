@@ -23,6 +23,10 @@ defmodule Assay.TestSupport.ConfigStub do
       warnings: Keyword.get(opts, :warnings, []),
       app_sources: Keyword.get(opts, :app_sources, []),
       warning_app_sources: Keyword.get(opts, :warning_app_sources, []),
+      dialyzer_flags: Keyword.get(opts, :dialyzer_flags, []),
+      dialyzer_flag_options: Keyword.get(opts, :dialyzer_flag_options, []),
+      dialyzer_init_plt: Keyword.get(opts, :dialyzer_init_plt),
+      dialyzer_output_plt: Keyword.get(opts, :dialyzer_output_plt),
       discovery_info:
         Keyword.get(opts, :discovery_info, %{
           project_apps: apps,
