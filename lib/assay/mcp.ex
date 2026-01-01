@@ -21,13 +21,15 @@ defmodule Assay.MCP do
             server_info: %{
               "name" => "assay",
               "version" => Mix.Project.config()[:version]
-            }
+            },
+            halt_on_stop?: true
 
   @type t :: %__MODULE__{
           daemon: Daemon.t(),
           initialized?: boolean(),
           client_info: map(),
-          server_info: map()
+          server_info: map(),
+          halt_on_stop?: boolean()
         }
 
   @doc """
@@ -50,7 +52,8 @@ defmodule Assay.MCP do
         Daemon.new(opts)
 
     %__MODULE__{
-      daemon: daemon
+      daemon: daemon,
+      halt_on_stop?: Keyword.get(opts, :halt_on_stop?, true)
     }
   end
 
@@ -201,7 +204,9 @@ defmodule Assay.MCP do
   end
 
   defp handle_action(:continue, state), do: loop(state)
-  defp handle_action(:stop, _state), do: System.halt(0)
+
+  defp handle_action(:stop, %__MODULE__{halt_on_stop?: true}), do: System.halt(0)
+  defp handle_action(:stop, %__MODULE__{}), do: :ok
 
   defp process_line(line, state) do
     case JSON.decode(line) do
