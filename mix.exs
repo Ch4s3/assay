@@ -5,6 +5,7 @@ defmodule Assay.MixProject do
     [
       app: :assay,
       version: "0.1.0",
+      description: "A tool for running Dialyzer in incremental mode on Elixir projects.",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),

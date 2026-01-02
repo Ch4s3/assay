@@ -76,4 +76,49 @@ defmodule Assay.DialyzerFlagsTest do
       DialyzerFlags.parse(["--build_plt"], :cli, @tmp_root)
     end
   end
+
+  test "parses chained raw flag string" do
+    result =
+      DialyzerFlags.parse(
+        "--resources --raw --no_indentation --no_spec --error_location=column",
+        :cli,
+        @tmp_root
+      )
+
+    assert Keyword.fetch!(result.options, :report_mode) == :quiet
+    assert Keyword.fetch!(result.options, :timing) == :debug
+    assert Keyword.fetch!(result.options, :output_format) == :raw
+    assert Keyword.fetch!(result.options, :indent_opt) == false
+    assert Keyword.fetch!(result.options, :use_contracts) == false
+    assert Keyword.fetch!(result.options, :error_location) == :column
+  end
+
+  test "accepts keyword style include_dirs" do
+    result = DialyzerFlags.parse([include_dirs: [~c"char/include"]], :config, @tmp_root)
+    assert Keyword.fetch!(result.options, :include_dirs) == [~c"char/include"]
+  end
+
+  test "parse errors when error_location invalid" do
+    assert_raise Mix.Error, fn ->
+      DialyzerFlags.parse(["--error_location=bogus"], :cli, @tmp_root)
+    end
+  end
+
+  test "parse errors when solver unknown" do
+    assert_raise Mix.Error, fn ->
+      DialyzerFlags.parse(["--solver=unknown"], :cli, @tmp_root)
+    end
+  end
+
+  test "parse errors for unsupported flags" do
+    assert_raise Mix.Error, fn ->
+      DialyzerFlags.parse(["--totally-unknown"], :config, @tmp_root)
+    end
+  end
+
+  test "parse errors for invalid define value" do
+    assert_raise Mix.Error, fn ->
+      DialyzerFlags.parse([{"--define", "="}], :config, @tmp_root)
+    end
+  end
 end
