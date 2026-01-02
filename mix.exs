@@ -8,6 +8,7 @@ defmodule Assay.MixProject do
       description: "A tool for running Dialyzer in incremental mode on Elixir projects.",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      package: package(),
       deps: deps(),
       assay: assay()
     ]
@@ -52,6 +53,15 @@ defmodule Assay.MixProject do
       :stdlib,
       :elixir,
       :erts
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => "https://github.com/Ch4s3/assay"
+      }
     ]
   end
 end
