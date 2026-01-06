@@ -127,15 +127,6 @@ defmodule Assay.Watch do
         else
           state
         end
-
-      stored_ref when is_reference(stored_ref) ->
-        # Legacy support for old state format
-        if refs_equal?(stored_ref, task_ref) do
-          log_task_result(result)
-          %{state | running: false, analysis_task: nil}
-        else
-          state
-        end
     end
   end
 
@@ -147,14 +138,6 @@ defmodule Assay.Watch do
       %Task{ref: stored_ref} ->
         if refs_equal?(stored_ref, task_ref) do
           # Task completed normally (DOWN message after result)
-          %{state | running: false, analysis_task: nil}
-        else
-          state
-        end
-
-      stored_ref when is_reference(stored_ref) ->
-        # Legacy support for old state format
-        if refs_equal?(stored_ref, task_ref) do
           %{state | running: false, analysis_task: nil}
         else
           state
@@ -415,10 +398,5 @@ defmodule Assay.Watch do
     # Task might have already completed or been cancelled
     _ ->
       %{state | running: false, analysis_task: nil}
-  end
-
-  defp cancel_running_task(state) do
-    # Legacy support: if analysis_task is a ref instead of a Task struct
-    state
   end
 end

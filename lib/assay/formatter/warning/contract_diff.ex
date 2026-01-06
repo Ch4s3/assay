@@ -1,6 +1,7 @@
 defmodule Assay.Formatter.Warning.ContractDiff do
   @moduledoc false
 
+  alias Assay.Formatter.Suggestions
   alias Assay.Formatter.Warning
   alias Assay.Formatter.Warning.Handler
   alias Assay.Formatter.Warning.Result
@@ -40,7 +41,9 @@ defmodule Assay.Formatter.Warning.ContractDiff do
         Warning.value_block("Contract (@spec)", contract_lines, color?: color?, color: :red),
         [""],
         Warning.value_block("Success typing", success_lines, color?: color?, color: :green),
-        Warning.diff_section(diff_lines, color?: color?)
+        Warning.diff_section(diff_lines, color?: color?),
+        [""],
+        Suggestions.for_warning(entry.code, entry)
       ]
       |> List.flatten()
       |> Enum.reject(&is_nil/1)

@@ -256,42 +256,76 @@ defmodule Assay.Formatter do
   defp format_snippet(path, line, column) do
     with true <- File.regular?(path),
          {:ok, contents} <- File.read(path),
-         source_line when is_binary(source_line) <- fetch_line(contents, line) do
-      digits = line |> Integer.to_string() |> String.length()
-      line_label = String.pad_leading(Integer.to_string(line), digits)
-      sanitized = sanitize_line(source_line)
+         lines_list when is_list(lines_list) <- fetch_context_lines(contents, line, 2) do
+      digits = max_line_digits(lines_list)
+      error_line_idx = Enum.find_index(lines_list, & &1.line == line)
 
-      pointer =
-        case column do
-          column when is_integer(column) and column > 0 ->
-            indent = max(column - 1, 0)
-            gutter = String.duplicate(" ", digits)
-            "#{gutter} │ #{String.duplicate(" ", indent)}^"
+      snippet_lines =
+        lines_list
+        |> Enum.with_index()
+        |> Enum.flat_map(fn {line_data, idx} ->
+          format_context_line(line_data, digits, idx == error_line_idx, column)
+        end)
 
-          _ ->
-            nil
-        end
-
-      snippet_lines = [
-        "│",
-        "#{line_label} │ #{sanitized}",
-        pointer,
-        "│"
-      ]
-
-      Enum.reject(snippet_lines, &is_nil/1)
+      ["│"] ++ snippet_lines ++ ["│"]
     else
       _ -> nil
     end
   end
 
-  defp fetch_line(contents, line) when line > 0 do
-    contents
-    |> String.split("\n", trim: false)
-    |> Enum.at(line - 1)
+  defp fetch_context_lines(contents, target_line, context_lines) do
+    all_lines = String.split(contents, "\n", trim: false)
+    start_line = max(1, target_line - context_lines)
+    end_line = min(length(all_lines), target_line + context_lines)
+
+    start_line..end_line
+    |> Enum.map(fn line_num ->
+      %{
+        line: line_num,
+        content:
+          Enum.at(all_lines, line_num - 1)
+          |> String.trim_trailing("\n")
+          |> String.trim_trailing("\r")
+      }
+    end)
   end
 
-  defp fetch_line(_contents, _line), do: nil
+  defp max_line_digits(lines_list) do
+    lines_list
+    |> Enum.map(fn %{line: line} -> line end)
+    |> Enum.map(&Integer.to_string/1)
+    |> Enum.map(&String.length/1)
+    |> Enum.max(fn -> 1 end)
+  end
+
+  defp format_context_line(%{line: line, content: content}, digits, is_error_line, column) do
+    line_label = String.pad_leading(Integer.to_string(line), digits)
+    sanitized = sanitize_line(content)
+
+    base_line = "#{line_label} │ #{sanitized}"
+
+    if is_error_line and column do
+      # Add underline for the problematic segment
+      underline = create_underline(sanitized, column, digits)
+      [base_line, underline]
+    else
+      [base_line]
+    end
+  end
+
+  defp create_underline(line, column, digits) do
+    indent = max(column - 1, 0)
+    gutter = String.duplicate(" ", digits)
+    # Calculate underline length (try to match the problematic token)
+    underline_length = calculate_underline_length(line, column)
+    "#{gutter} │ #{String.duplicate(" ", indent)}#{String.duplicate("~", underline_length)}"
+  end
+
+  defp calculate_underline_length(line, column) do
+    # Try to find the token at this column
+    # For now, default to 3 characters, but could be enhanced to detect actual token boundaries
+    min(3, max(1, String.length(line) - column + 1))
+  end
 
   defp sanitize_line(line) do
     line

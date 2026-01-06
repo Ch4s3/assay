@@ -1,6 +1,7 @@
 defmodule Assay.Formatter.Warning.FailingCall do
   @moduledoc false
 
+  alias Assay.Formatter.Suggestions
   alias Assay.Formatter.Warning
   alias Assay.Formatter.Warning.Handler
   alias Assay.Formatter.Warning.Result
@@ -32,7 +33,9 @@ defmodule Assay.Formatter.Warning.FailingCall do
               color?: color?,
               color: :green
             ),
-            Warning.diff_section(diff_lines, color?: color?)
+            Warning.diff_section(diff_lines, color?: color?),
+            [""],
+            Suggestions.for_warning(:warn_failing_call, entry)
           ]
           |> List.flatten()
           |> Enum.reject(&is_nil/1)
