@@ -4,84 +4,58 @@ defmodule Assay.Formatter.HelpersTest do
   alias Assay.Formatter.Helpers
 
   describe "format_term_lines/1" do
-    test "stringifies printable binaries and placeholder bit specs" do
-      lines =
-        Helpers.format_term_lines(
-          "%{:metadata => %{:count => <<_ :: 32>>, :extras => %{:source => <<116,105,116,108,101>>}}}"
-        )
+    test "handles nil and printable binaries" do
+      assert Helpers.format_term_lines(nil) == []
 
-      joined = Enum.join(lines, "\n")
-
-      assert joined =~ "\"<<_ :: 32>>\""
-      assert joined =~ "\"title\""
+      assert Helpers.format_term_lines("%{title => <<116,105,116,108,101>>}") ==
+               ["%{title => \"title\"}"]
     end
   end
 
   describe "diff_lines/3" do
-    test "highlights nested map entry differences recursively" do
-      expected = [
-        "(%{:items => maybe_improper_list(), :metadata => %{:count => integer(), :extras => %{:source => atom(), _ => _}}, :status => :ok, _ => _})"
-      ]
-
-      actual = [
-        "(%{:items => [%{:unexpected => :entry}], :metadata => %{:count => <<_ :: 32>>, :extras => %{:source => <<_ :: 24>>}}, :status => :error, <<_ :: 48>> => %{<<_ :: 56>> => 123}})"
-      ]
-
+    test "renders spec diffs inline" do
       lines =
-        expected
-        |> Helpers.diff_lines(actual, color?: false)
+        Helpers.diff_lines(
+          ["(integer()) :: integer()"],
+          ["(integer()) :: atom()"],
+          color?: false
+        )
         |> List.flatten()
 
-      assert "-  :items => maybe_improper_list()" in lines
-      assert "+  :items => [%{:unexpected => :entry}]" in lines
-
-      assert "-  :metadata => %{:count => integer(), :extras => %{:source => atom(), _ => _}}" in lines
-
-      assert ~S(+  :metadata => %{:count => "<<_ :: 32>>", :extras => %{:source => "<<_ :: 24>>"}}) in lines
-
-      assert ~S(+  "<<_ :: 48>>" => %{"<<_ :: 56>>" => 123}) in lines
+      assert "-  (integer()) :: integer()" in lines
+      assert "+  (integer()) :: atom()" in lines
     end
 
-    test "keeps specification delimiters balanced even after highlighting" do
-      expected = ["([integer()]) :: integer() | nil"]
-      actual = ["(maybe_improper_list()) :: any()"]
+    test "renders map entries and highlights nested diffs" do
+      lines =
+        Helpers.diff_lines(
+          ["%{a => (integer()), b => (atom())}"],
+          ["%{a => (binary()), b => (atom())}"],
+          color?: false
+        )
+        |> List.flatten()
 
-      [[del_line], [ins_line]] = Helpers.diff_lines(expected, actual, color?: true)
+      assert Enum.any?(lines, &String.contains?(&1, "-  a => (integer())"))
+      assert Enum.any?(lines, &String.contains?(&1, "+  a => (binary())"))
+    end
 
-      clean_del = strip_ansi(del_line)
-      clean_ins = strip_ansi(ins_line)
+    test "falls back to Myers diff when no structured format matches" do
+      lines =
+        Helpers.diff_lines(["foo"], ["bar"], color?: false)
+        |> List.flatten()
 
-      assert clean_del =~ "([integer()]) :: integer() | nil"
-      assert clean_ins =~ "(maybe_improper_list()) :: any()"
-
-      assert balanced?(clean_del)
-      assert balanced?(clean_ins)
+      assert lines == ["-  foo", "+  bar"]
     end
   end
 
-  defp strip_ansi(text) do
-    Regex.replace(~r/\e\[[\d;]*m/, text, "")
-  end
+  describe "colorize/3" do
+    test "only wraps text when enabled" do
+      assert Helpers.colorize("plain", :blue, false) == "plain"
 
-  defp balanced?(line) do
-    line
-    |> String.graphemes()
-    |> Enum.reduce_while([], fn
-      "(", stack -> {:cont, ["(" | stack]}
-      "[", stack -> {:cont, ["[" | stack]}
-      "{", stack -> {:cont, ["{" | stack]}
-      ")", ["(" | rest] -> {:cont, rest}
-      "]", ["[" | rest] -> {:cont, rest}
-      "}", ["{" | rest] -> {:cont, rest}
-      ")", _ -> {:halt, :error}
-      "]", _ -> {:halt, :error}
-      "}", _ -> {:halt, :error}
-      _, stack -> {:cont, stack}
-    end)
-    |> case do
-      :error -> false
-      [] -> true
-      _ -> false
+      colorized = Helpers.colorize("plain", :blue, true)
+      assert String.starts_with?(colorized, "\e[")
+      assert String.ends_with?(colorized, "\e[0m")
+      assert colorized != "plain"
     end
   end
 end

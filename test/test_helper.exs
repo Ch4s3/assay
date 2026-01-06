@@ -1,3 +1,20 @@
+# Ensure :tools application is loaded for coverage
+# This helps the cover tool find its stylesheet
+try do
+  :code.ensure_loaded(:tools)
+  case :code.priv_dir(:tools) do
+    {:error, _} ->
+      # Tools application not found - coverage HTML reports may fail
+      # but coverage data collection should still work
+      :ok
+    _ ->
+      # Tools found, try to start it if it's an application
+      Application.ensure_all_started(:tools)
+  end
+rescue
+  _ -> :ok
+end
+
 ExUnit.start()
 
 defmodule Assay.TestSupport.ConfigStub do
@@ -130,38 +147,47 @@ defmodule Assay.TestSupport.IOProxy do
   defp fulfill_pending(state) do
     {pending, buffer} =
       Enum.reduce(state.pending, {[], state.buffer}, fn request, {acc, buf} ->
-        case request.type do
-          :line ->
-            case fetch_line(buf, state.eof?) do
-              {:reply, reply, rest} ->
-                send(request.from, {:io_reply, request.reply_as, reply})
-                {acc, rest}
-
-              :pending ->
-                {[request | acc], buf}
-
-              {:reply_eof, reply} ->
-                send(request.from, {:io_reply, request.reply_as, reply})
-                {acc, buf}
-            end
-
-          {:chars, len} ->
-            case fetch_chars(buf, state.eof?, len) do
-              {:reply, reply, rest} ->
-                send(request.from, {:io_reply, request.reply_as, reply})
-                {acc, rest}
-
-              :pending ->
-                {[request | acc], buf}
-
-              {:reply_eof, reply} ->
-                send(request.from, {:io_reply, request.reply_as, reply})
-                {acc, buf}
-            end
-        end
+        fulfill_request(request, buf, state.eof?, acc)
       end)
 
     %{state | pending: Enum.reverse(pending), buffer: buffer}
+  end
+
+  defp fulfill_request(request, buf, eof?, acc) do
+    case request.type do
+      :line -> fulfill_line_request(request, buf, eof?, acc)
+      {:chars, len} -> fulfill_chars_request(request, buf, eof?, len, acc)
+    end
+  end
+
+  defp fulfill_line_request(request, buf, eof?, acc) do
+    case fetch_line(buf, eof?) do
+      {:reply, reply, rest} ->
+        send(request.from, {:io_reply, request.reply_as, reply})
+        {acc, rest}
+
+      :pending ->
+        {[request | acc], buf}
+
+      {:reply_eof, reply} ->
+        send(request.from, {:io_reply, request.reply_as, reply})
+        {acc, buf}
+    end
+  end
+
+  defp fulfill_chars_request(request, buf, eof?, len, acc) do
+    case fetch_chars(buf, eof?, len) do
+      {:reply, reply, rest} ->
+        send(request.from, {:io_reply, request.reply_as, reply})
+        {acc, rest}
+
+      :pending ->
+        {[request | acc], buf}
+
+      {:reply_eof, reply} ->
+        send(request.from, {:io_reply, request.reply_as, reply})
+        {acc, buf}
+    end
   end
 
   defp update_pending(state, request) do

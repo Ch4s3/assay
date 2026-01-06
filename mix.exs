@@ -10,14 +10,15 @@ defmodule Assay.MixProject do
       start_permanent: Mix.env() == :prod,
       package: package(),
       deps: deps(),
-      assay: assay()
+      assay: assay(),
+      test_coverage: [output: "cover"]
     ]
   end
 
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger, :dialyzer, :syntax_tools],
+      extra_applications: [:logger, :dialyzer, :syntax_tools, :tools],
       mod: {Assay.Application, []}
     ]
   end

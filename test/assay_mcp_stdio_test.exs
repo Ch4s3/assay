@@ -1,7 +1,7 @@
 defmodule Assay.MCPSTDIOTest do
   use ExUnit.Case, async: false
 
-  alias Assay.{MCP, Daemon}
+  alias Assay.{Daemon, MCP}
   alias Assay.TestSupport.IOProxy
 
   defmodule StubRunner do
