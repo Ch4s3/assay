@@ -120,7 +120,16 @@ defmodule Assay.Watch do
       nil ->
         state
 
-      stored_ref ->
+      %Task{ref: stored_ref} ->
+        if refs_equal?(stored_ref, task_ref) do
+          log_task_result(result)
+          %{state | running: false, analysis_task: nil}
+        else
+          state
+        end
+
+      stored_ref when is_reference(stored_ref) ->
+        # Legacy support for old state format
         if refs_equal?(stored_ref, task_ref) do
           log_task_result(result)
           %{state | running: false, analysis_task: nil}
@@ -135,9 +144,17 @@ defmodule Assay.Watch do
       nil ->
         state
 
-      stored_ref ->
+      %Task{ref: stored_ref} ->
         if refs_equal?(stored_ref, task_ref) do
           # Task completed normally (DOWN message after result)
+          %{state | running: false, analysis_task: nil}
+        else
+          state
+        end
+
+      stored_ref when is_reference(stored_ref) ->
+        # Legacy support for old state format
+        if refs_equal?(stored_ref, task_ref) do
           %{state | running: false, analysis_task: nil}
         else
           state
@@ -193,38 +210,35 @@ defmodule Assay.Watch do
   defp execute_run_async(state, reason) do
     cancel_timer(state.timer)
 
-    # If a run is already in progress, skip this one (debounce will reschedule)
-    if state.running do
-      Mix.shell().info("[Assay] Run already in progress, skipping...")
-      state
-    else
-      Mix.shell().info("[Assay] #{reason}, running incremental Dialyzer...")
+    # If a run is already in progress, cancel it before starting a new one
+    state = cancel_running_task(state)
 
-      # Run analysis in a separate task so we can continue receiving file events
-      task =
-        Task.async(fn ->
-          try do
-            state.assay.run()
-          rescue
-            error ->
-              Mix.shell().error(
-                "[Assay] Error running analysis: #{Exception.format(:error, error, __STACKTRACE__)}"
-              )
+    Mix.shell().info("[Assay] #{reason}, running incremental Dialyzer...")
 
-              :error
-          catch
-            kind, reason ->
-              Mix.shell().error(
-                "[Assay] Error running analysis: #{Exception.format(kind, reason, __STACKTRACE__)}"
-              )
+    # Run analysis in a separate task so we can continue receiving file events
+    task =
+      Task.async(fn ->
+        try do
+          state.assay.run()
+        rescue
+          error ->
+            Mix.shell().error(
+              "[Assay] Error running analysis: #{Exception.format(:error, error, __STACKTRACE__)}"
+            )
 
-              :error
-          end
-        end)
+            :error
+        catch
+          kind, reason ->
+            Mix.shell().error(
+              "[Assay] Error running analysis: #{Exception.format(kind, reason, __STACKTRACE__)}"
+            )
 
-      # Store the task ref so we can match on completion messages
-      %{state | running: true, timer: nil, analysis_task: task.ref}
-    end
+            :error
+        end
+      end)
+
+    # Store the task struct so we can cancel it if needed
+    %{state | running: true, timer: nil, analysis_task: task}
   end
 
   defp maybe_schedule(path, state) do
@@ -240,7 +254,10 @@ defmodule Assay.Watch do
     %{state | timer: timer}
   end
 
-  defp schedule(state), do: state
+  defp schedule(state) do
+    # If a timer is already set, cancel any running task since we'll reschedule
+    cancel_running_task(state)
+  end
 
   defp cancel_timer(nil), do: :ok
   defp cancel_timer(ref), do: Process.cancel_timer(ref)
@@ -359,5 +376,49 @@ defmodule Assay.Watch do
   # Hash collisions are extremely unlikely for references.
   defp refs_equal?(ref1, ref2) do
     :erlang.phash2(ref1) == :erlang.phash2(ref2)
+  end
+
+  defp cancel_running_task(%{running: false} = state), do: state
+
+  defp cancel_running_task(%{analysis_task: nil} = state), do: state
+
+  defp cancel_running_task(%{analysis_task: %Task{} = task} = state) do
+    # Try to shutdown gracefully with a short timeout, then kill if needed
+    case Task.shutdown(task, 100) do
+      {:ok, _result} ->
+        # Task completed before we could cancel it
+        %{state | running: false, analysis_task: nil}
+
+      {:exit, :killed} ->
+        # Task was successfully cancelled
+        Mix.shell().info("[Assay] Cancelled previous run, starting new run...")
+        %{state | running: false, analysis_task: nil}
+
+      {:exit, reason} ->
+        # Task exited for some other reason
+        Mix.shell().info("[Assay] Previous run exited (#{inspect(reason)}), starting new run...")
+        %{state | running: false, analysis_task: nil}
+
+      nil ->
+        # Task didn't respond in time, force kill it
+        case Task.shutdown(task, :brutal_kill) do
+          {:exit, :killed} ->
+            Mix.shell().info("[Assay] Cancelled previous run (force), starting new run...")
+
+          _ ->
+            Mix.shell().info("[Assay] Cancelled previous run, starting new run...")
+        end
+
+        %{state | running: false, analysis_task: nil}
+    end
+  rescue
+    # Task might have already completed or been cancelled
+    _ ->
+      %{state | running: false, analysis_task: nil}
+  end
+
+  defp cancel_running_task(state) do
+    # Legacy support: if analysis_task is a ref instead of a Task struct
+    state
   end
 end

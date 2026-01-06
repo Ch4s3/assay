@@ -15,7 +15,6 @@ defmodule Assay.MixProject do
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
   def application do
     [
       extra_applications: [:logger, :dialyzer, :syntax_tools, :tools],
@@ -23,7 +22,6 @@ defmodule Assay.MixProject do
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       {:file_system, "~> 1.1"},

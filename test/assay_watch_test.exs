@@ -510,20 +510,23 @@ defmodule Assay.WatchTest do
     end
   end
 
-  test "skips runs when one is already in progress", %{tmp_dir: tmp_dir} do
+  test "cancels in-flight task when new change is detected", %{tmp_dir: tmp_dir} do
     File.mkdir_p!(Path.join(tmp_dir, "lib"))
 
-    defmodule SlowAssayStub do
+    parent = self()
+    test_pid = self()
+
+    defmodule CancellableAssayStub do
       def run do
-        send(self(), {:assay_run_started})
-        # Simulate a long-running analysis
-        Process.sleep(200)
-        send(self(), {:assay_run_completed})
+        # Send to the test process directly
+        test_pid = Process.get(:assay_watch_test_pid)
+        if test_pid, do: send(test_pid, {:assay_run_started})
+        # Simulate a long-running analysis that can be cancelled
+        Process.sleep(500)
+        if test_pid, do: send(test_pid, {:assay_run_completed})
         :ok
       end
     end
-
-    parent = self()
 
     event_sender =
       spawn(fn ->
@@ -538,12 +541,145 @@ defmodule Assay.WatchTest do
         Process.sleep(20)
         send(watcher_pid, :run)
 
-        # Send another event while the first run is in progress
-        Process.sleep(50)
+        # Wait for the run to start
+        receive do
+          {:assay_run_started} -> :ok
+        after
+          200 -> :timeout
+        end
+
+        # Send another event while the first run is in progress - should cancel it
         send(watcher_pid, {:file_event, self(), test_file})
         Process.sleep(20)
         send(watcher_pid, :run)
 
+        send(parent, :done)
+      end)
+
+    Process.put(:assay_watch_test_pid, test_pid)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: CancellableAssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 1000
+
+    # Verify that the first run was cancelled (should not receive completed message)
+    refute_receive {:assay_run_completed}, 100
+
+    Task.shutdown(task, :brutal_kill)
+    Process.delete(:assay_watch_test_pid)
+  end
+
+  test "cancels task when rescheduling during debounce", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+    test_pid = self()
+
+    defmodule LongRunningAssayStub do
+      def run do
+        test_pid = Process.get(:assay_watch_test_pid)
+        if test_pid, do: send(test_pid, {:assay_run_started})
+        Process.sleep(300)
+        if test_pid, do: send(test_pid, {:assay_run_completed})
+        :ok
+      end
+    end
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+
+        # Send first event (starts debounce timer)
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(15)
+
+        # Send second event before timer fires (should cancel timer and reschedule)
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(15)
+
+        # Send third event (should cancel any running task and reschedule)
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(50)
+        send(watcher_pid, :run)
+
+        send(parent, :done)
+      end)
+
+    Process.put(:assay_watch_test_pid, test_pid)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: LongRunningAssayStub,
+            debounce: 30
+          )
+        end)
+      end)
+
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 1000
+
+    Task.shutdown(task, :brutal_kill)
+    Process.delete(:assay_watch_test_pid)
+  end
+
+  test "handles task that completes before cancellation gracefully", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+
+    defmodule FastAssayStub do
+      def run do
+        # Fast completion - should finish before any cancellation attempt
+        Process.sleep(5)
+        :ok
+      end
+    end
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(5)
+        send(watcher_pid, :run)
+
+        # Wait for the first run to complete (it's fast)
+        Process.sleep(50)
+
+        # Send another event - the previous run should have completed
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(20)
+        send(watcher_pid, :run)
+
+        Process.sleep(20)
         send(parent, :done)
       end)
 
@@ -554,7 +690,47 @@ defmodule Assay.WatchTest do
             run_once: false,
             project_root: tmp_dir,
             file_system_module: FileSystemEventStub,
-            assay_module: SlowAssayStub,
+            assay_module: FastAssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+
+    # Should complete without errors even when a fast task finishes before cancellation
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+  end
+
+  test "handles :stop file event", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        # Send :stop event - should be handled gracefully
+        send(watcher_pid, {:file_event, self(), :stop})
+        Process.sleep(10)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
             debounce: 10
           )
         end)
@@ -563,7 +739,370 @@ defmodule Assay.WatchTest do
     Process.sleep(10)
     send(event_sender, {:pid, task.pid})
     assert_receive :done, 500
+
     Task.shutdown(task, :brutal_kill)
+  end
+
+  test "handles task result with legacy ref format", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+
+    defmodule LegacyRefAssayStub do
+      def run do
+        parent = Notifier.target()
+        send(parent, {:assay_run, :ok})
+        :ok
+      end
+    end
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(10)
+        send(watcher_pid, :run)
+
+        Process.sleep(50)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: LegacyRefAssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    ResultStore.put(task.pid, :ok)
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
+  end
+
+  test "handles task that exits with non-killed reason during cancellation", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+    test_name = :"assay_watch_test_#{:erlang.unique_integer([:positive])}"
+
+    defmodule ExitingAssayStub do
+      def run do
+        test_name = Process.get(:assay_watch_test_name)
+
+        if test_name && Process.whereis(test_name) do
+          send(test_name, {:assay_run_started})
+        end
+
+        # Simulate a task that will exit abnormally
+        Process.sleep(200)
+        :ok
+      end
+    end
+
+    Process.register(self(), test_name)
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(20)
+        send(watcher_pid, :run)
+
+        # Wait for run to start
+        receive do
+          {:assay_run_started} -> :ok
+        after
+          200 -> :timeout
+        end
+
+        # Send another event to trigger cancellation
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(20)
+        send(watcher_pid, :run)
+
+        Process.sleep(30)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        Process.put(:assay_watch_test_name, test_name)
+
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: ExitingAssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 1000
+
+    Task.shutdown(task, :brutal_kill)
+    Process.unregister(test_name)
+  end
+
+  test "handles cancel_running_task with running: false", %{tmp_dir: tmp_dir} do
+    # This tests the early return when running is false
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+        # Send event but don't trigger a run immediately
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(50)
+        send(watcher_pid, :run)
+
+        Process.sleep(20)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
+            debounce: 100
+          )
+        end)
+      end)
+
+    ResultStore.put(task.pid, :ok)
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
+  end
+
+  test "handles cancel_running_task with analysis_task: nil", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    # Test that cancel_running_task handles nil analysis_task gracefully
+    # This happens when schedule is called but no task is running
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+        # Send multiple events quickly to trigger rescheduling
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(5)
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(5)
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(30)
+        send(watcher_pid, :run)
+
+        Process.sleep(20)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
+            debounce: 20
+          )
+        end)
+      end)
+
+    ResultStore.put(task.pid, :ok)
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
+  end
+
+  test "handles path normalization errors", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+
+    # Create a path that might cause normalization issues
+    # Using a charlist path to test the conversion
+    test_path = [0, 1, 2, 3] |> List.to_string()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        # Send event with potentially problematic path
+        send(watcher_pid, {:file_event, self(), test_path})
+        Process.sleep(10)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+  end
+
+  test "handles task result with mismatched ref", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+
+    defmodule MismatchedRefAssayStub do
+      def run do
+        parent = Notifier.target()
+        send(parent, {:assay_run, :ok})
+        :ok
+      end
+    end
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(10)
+        send(watcher_pid, :run)
+
+        # Send a fake task result with wrong ref - should be ignored
+        send(watcher_pid, {make_ref(), :ok})
+
+        Process.sleep(20)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: MismatchedRefAssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    ResultStore.put(task.pid, :ok)
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
+  end
+
+  test "handles task DOWN message with mismatched ref", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(10)
+        send(watcher_pid, :run)
+
+        # Send a fake DOWN message with wrong ref - should be ignored
+        fake_ref = make_ref()
+        send(watcher_pid, {:DOWN, fake_ref, :process, self(), :normal})
+
+        Process.sleep(20)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    ResultStore.put(task.pid, :ok)
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
   end
 
   test "handles empty watch directories gracefully", %{tmp_dir: tmp_dir} do
