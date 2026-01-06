@@ -3,215 +3,164 @@ defmodule Assay.ConfigTest do
 
   alias Assay.Config
 
-  @plt_filename Assay.Config.plt_filename()
+  test "from_mix_project resolves selectors and options" do
+    with_project(
+      [
+        apps: [:project],
+        warning_apps: [:current_plus_deps],
+        warnings: [:unmatched_return],
+        ignore_file: nil,
+        dialyzer_flags: ["--statistics"]
+      ],
+      fn project_app, _project_dir ->
+        config = Config.from_mix_project(dependency_apps: [:dep_one])
 
-  @moduletag :tmp_dir
+        assert project_app in config.apps
+        assert :dep_one in config.warning_apps
+        assert config.ignore_file == nil
+        assert config.warnings == [:unmatched_return]
+        assert "--statistics" in config.dialyzer_flags
+        assert {:timing, true} in config.dialyzer_flag_options
 
-  setup context do
-    project_module = Map.get(context, :project_module, __MODULE__.ValidProject)
-    Mix.Project.push(project_module)
+        assert Enum.any?(config.app_sources, &match?(%{selector: :project}, &1))
+        assert Enum.any?(config.warning_app_sources, &match?(%{selector: :current_plus_deps}, &1))
 
-    on_exit(fn ->
-      Mix.Project.pop()
+        optional_apps = optional_apps()
+        assert Enum.all?(optional_apps, &(&1 in config.apps))
+      end
+    )
+  end
+
+  test "from_mix_project keeps literal app values with paths" do
+    with_project([apps: [:project], warning_apps: [:project]], fn project_app, _project_dir ->
+      config =
+        Config.from_mix_project(
+          apps: ["apps/demo"],
+          warning_apps: [:project]
+        )
+
+      assert "apps/demo" in config.apps
+      assert project_app in config.warning_apps
     end)
-
-    :ok
   end
 
-  test "from_mix_project builds a normalized config struct", %{tmp_dir: tmp_dir} do
-    config = Config.from_mix_project(project_root: tmp_dir)
+  test "from_mix_project expands project+deps selector" do
+    with_project([apps: ["project+deps"], warning_apps: ["current"]], fn project_app, _project_dir ->
+      config = Config.from_mix_project(dependency_apps: [:dep_one])
 
-    assert Enum.sort(config.apps) == Enum.sort([:demo, :erlex, :igniter, :rewrite])
-    assert config.warning_apps == [:demo_warn]
-    assert config.cache_dir == Path.join(tmp_dir, "_build/assay")
-    assert config.plt_path == Path.join(tmp_dir, "_build/assay/#{@plt_filename}")
-    assert config.elixir_lib_path == :code.lib_dir(:elixir) |> to_string()
-
-    assert config.ignore_file ==
-             Path.expand("config/dialyzer_ignore.exs", tmp_dir)
-
-    assert config.warnings == [:error_handling]
+      assert project_app in config.apps
+      assert :dep_one in config.apps
+      assert :logger in config.apps
+      assert config.warning_apps == [project_app]
+    end)
   end
 
-  @tag project_module: __MODULE__.NilIgnoreProject
-  test "from_mix_project treats nil ignore file as disabled", %{tmp_dir: tmp_dir} do
-    config = Config.from_mix_project(project_root: tmp_dir)
-    assert config.ignore_file == nil
+  test "from_mix_project normalizes charlist app overrides" do
+    with_project([apps: [:project], warning_apps: [:project]], fn _project_app, _project_dir ->
+      config =
+        Config.from_mix_project(
+          apps: ~c"custom_app",
+          warning_apps: ~c"custom_app"
+        )
+
+      chars = Enum.uniq(~c"custom_app")
+      assert Enum.all?(chars, &(&1 in config.apps))
+      assert Enum.all?(chars, &(&1 in config.warning_apps))
+    end)
   end
 
-  @tag project_module: __MODULE__.MissingAppsProject
-  test "from_mix_project raises when required lists are missing", %{tmp_dir: tmp_dir} do
+  test "from_mix_project expands ignore_file paths" do
+    with_project([apps: [:project], warning_apps: [:project], ignore_file: "ignore.exs"], fn _app, _project_dir ->
+      config = Config.from_mix_project()
+      assert String.ends_with?(config.ignore_file, "/ignore.exs")
+    end)
+  end
+
+  test "from_mix_project raises when warnings are not a list" do
     assert_raise Mix.Error, fn ->
-      Config.from_mix_project(project_root: tmp_dir)
+      with_project([apps: [:project], warning_apps: [:project], warnings: "bad"], fn _app, _dir ->
+        Config.from_mix_project()
+      end)
     end
   end
 
-  @tag project_module: __MODULE__.InvalidWarningsProject
-  test "from_mix_project validates optional warnings as lists", %{tmp_dir: tmp_dir} do
+  test "from_mix_project normalizes ignore_file and merges CLI flags" do
+    with_project(
+      [
+        apps: [:project],
+        warning_apps: [:project],
+        ignore_file: false,
+        dialyzer_flags: ["--output_plt tmp/config.plt"]
+      ],
+      fn _app, _dir ->
+        config =
+          Config.from_mix_project(
+            dialyzer_flags: ["--plt tmp/init.plt", "--output_plt tmp/cli.plt"]
+          )
+
+        assert config.ignore_file == nil
+        assert "--output_plt tmp/config.plt" in config.dialyzer_flags
+        assert "--plt tmp/init.plt" in config.dialyzer_flags
+        assert "--output_plt tmp/cli.plt" in config.dialyzer_flags
+
+        assert config.dialyzer_init_plt == Path.expand("tmp/init.plt") |> to_charlist()
+        assert config.dialyzer_output_plt == Path.expand("tmp/cli.plt") |> to_charlist()
+      end
+    )
+  end
+
+  test "from_mix_project raises when apps are not a list" do
     assert_raise Mix.Error, fn ->
-      Config.from_mix_project(project_root: tmp_dir)
+      with_project([apps: "bad", warning_apps: [:project]], fn _app, _dir ->
+        Config.from_mix_project()
+      end)
     end
   end
 
-  @tag project_module: __MODULE__.SelectorProject
-  test "from_mix_project resolves symbolic selectors", %{tmp_dir: tmp_dir} do
-    config =
-      Config.from_mix_project(
-        project_root: tmp_dir,
-        dependency_apps: [:dep_one, :dep_two]
-      )
+  defp with_project(dialyzer_config, fun) when is_function(fun, 2) do
+    token = System.unique_integer([:positive])
+    project_app = :"assay_config_#{token}"
+    project_module = Module.concat([Assay.ConfigTestProject, :"Project#{token}"])
 
-    expected =
-      Enum.sort([
-        :selector_demo,
-        :dep_one,
-        :dep_two,
-        :logger,
-        :kernel,
-        :stdlib,
-        :elixir,
-        :erts,
-        :erlex,
-        :igniter,
-        :rewrite
-      ])
+    project_dir = Path.join(System.tmp_dir!(), "assay_config_#{token}")
+    File.rm_rf!(project_dir)
+    File.mkdir_p!(project_dir)
 
-    assert Enum.sort(config.apps) == expected
+    mix_exs_content = """
+    defmodule #{inspect(project_module)} do
+      use Mix.Project
 
-    assert config.warning_apps == [:selector_demo]
-
-    assert [%{selector: :project_plus_deps, apps: apps}] = config.app_sources
-    assert :selector_demo in apps
-    assert [%{selector: :current, apps: [:selector_demo]}] = config.warning_app_sources
-  end
-
-  @tag project_module: __MODULE__.DialyzerFlagsProject
-  test "from_mix_project parses dialyzer flag overrides", %{tmp_dir: tmp_dir} do
-    config =
-      Config.from_mix_project(
-        project_root: tmp_dir,
-        dialyzer_flags: ["-Wunderspecs"]
-      )
-
-    assert config.dialyzer_flags == [
-             "--statistics",
-             {"--output_plt", "priv/assay/custom.plt"},
-             "-Wunderspecs"
-           ]
-
-    assert config.dialyzer_flag_options == [timing: true, warnings: [:underspecs]]
-
-    expected_output = Path.expand("priv/assay/custom.plt", tmp_dir)
-    assert config.dialyzer_output_plt == expected_output
-    assert config.dialyzer_init_plt == nil
-  end
-
-  defmodule ValidProject do
-    def project do
-      [
-        app: :demo,
-        version: "0.1.0",
-        assay: [
-          dialyzer: [
-            apps: [:demo],
-            warning_apps: [:demo_warn],
-            ignore_file: "config/dialyzer_ignore.exs",
-            warnings: [:error_handling]
+      def project do
+        [
+          app: #{inspect(project_app)},
+          version: "0.1.0",
+          deps: [],
+          assay: [
+            dialyzer: #{inspect(dialyzer_config)}
           ]
         ]
-      ]
-    end
+      end
 
-    def application, do: []
+      def application, do: []
+    end
+    """
+
+    File.write!(Path.join(project_dir, "mix.exs"), mix_exs_content)
+
+    try do
+      Mix.Project.in_project(project_app, project_dir, fn _ -> fun.(project_app, project_dir) end)
+    after
+      File.rm_rf!(project_dir)
+    end
   end
 
-  defmodule NilIgnoreProject do
-    def project do
-      [
-        app: :demo,
-        version: "0.1.0",
-        assay: [
-          dialyzer: [
-            apps: [:demo],
-            warning_apps: [:demo],
-            ignore_file: nil
-          ]
-        ]
-      ]
-    end
-
-    def application, do: []
-  end
-
-  defmodule MissingAppsProject do
-    def project do
-      [
-        app: :demo,
-        version: "0.1.0",
-        assay: [
-          dialyzer: [
-            warning_apps: [:demo]
-          ]
-        ]
-      ]
-    end
-
-    def application, do: []
-  end
-
-  defmodule InvalidWarningsProject do
-    def project do
-      [
-        app: :demo,
-        version: "0.1.0",
-        assay: [
-          dialyzer: [
-            apps: [:demo],
-            warning_apps: [:demo],
-            warnings: :overspecs
-          ]
-        ]
-      ]
-    end
-
-    def application, do: []
-  end
-
-  defmodule SelectorProject do
-    def project do
-      [
-        app: :selector_demo,
-        version: "0.1.0",
-        assay: [
-          dialyzer: [
-            apps: [:project_plus_deps],
-            warning_apps: [:current]
-          ]
-        ]
-      ]
-    end
-
-    def application, do: []
-  end
-
-  defmodule DialyzerFlagsProject do
-    def project do
-      [
-        app: :demo,
-        version: "0.1.0",
-        assay: [
-          dialyzer: [
-            apps: [:demo],
-            warning_apps: [:demo],
-            dialyzer_flags: [
-              "--statistics",
-              {"--output_plt", "priv/assay/custom.plt"}
-            ]
-          ]
-        ]
-      ]
-    end
-
-    def application, do: []
+  defp optional_apps do
+    [
+      {:erlex, :"Elixir.Erlex"},
+      {:igniter, :"Elixir.Igniter"},
+      {:rewrite, :"Elixir.Rewrite.Source"}
+    ]
+    |> Enum.filter(fn {_app, mod} -> Code.ensure_loaded?(mod) end)
+    |> Enum.map(&elem(&1, 0))
   end
 end

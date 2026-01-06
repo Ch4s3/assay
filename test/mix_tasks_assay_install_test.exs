@@ -1,11 +1,23 @@
 defmodule Mix.Tasks.Assay.InstallTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Igniter.Mix.Task.Args
   alias Igniter.Test, as: IgniterTest
   alias Mix.Tasks.Assay.Install
 
   @detected %{project_apps: [:demo], all_apps: [:demo, :logger]}
+
+  defmodule PromptShellYes do
+    def info(_), do: :ok
+    def error(_), do: :ok
+    def prompt(_), do: "y"
+  end
+
+  defmodule PromptShellNo do
+    def info(_), do: :ok
+    def error(_), do: :ok
+    def prompt(_), do: "n"
+  end
 
   setup_all do
     Application.ensure_all_started(:rewrite)
@@ -95,6 +107,104 @@ defmodule Mix.Tasks.Assay.InstallTest do
 
     files = igniter.assigns[:test_files]
     assert Map.fetch!(files, ".gitlab-ci.yml") =~ "mix assay --format github --format sarif"
+  end
+
+  test "prompts to include extra apps when no options are provided" do
+    previous_shell = Mix.shell()
+    Mix.shell(PromptShellYes)
+    on_exit(fn -> Mix.shell(previous_shell) end)
+
+    igniter =
+      IgniterTest.test_project(
+        files: %{
+          ".gitignore" => "",
+          "mix.exs" => mixfile()
+        }
+      )
+      |> Igniter.assign(:assay_detected_apps, @detected)
+      |> Install.igniter()
+      |> IgniterTest.apply_igniter!()
+
+    files = igniter.assigns[:test_files]
+    mix_contents = Map.fetch!(files, "mix.exs")
+    assert mix_contents =~ "assay: [dialyzer: [apps: [:demo, :logger], warning_apps: [:demo]]]"
+  end
+
+  test "skips extra apps when prompt is declined" do
+    previous_shell = Mix.shell()
+    Mix.shell(PromptShellNo)
+    on_exit(fn -> Mix.shell(previous_shell) end)
+
+    igniter =
+      IgniterTest.test_project(
+        files: %{
+          ".gitignore" => "",
+          "mix.exs" => mixfile()
+        }
+      )
+      |> Igniter.assign(:assay_detected_apps, @detected)
+      |> Install.igniter()
+      |> IgniterTest.apply_igniter!()
+
+    files = igniter.assigns[:test_files]
+    mix_contents = Map.fetch!(files, "mix.exs")
+    assert mix_contents =~ "assay: [dialyzer: [apps: [:demo], warning_apps: [:demo]]]"
+  end
+
+  test "installer can skip CI scaffolding when requested" do
+    igniter =
+      IgniterTest.test_project(
+        files: %{
+          ".gitignore" => "",
+          "mix.exs" => mixfile()
+        }
+      )
+      |> Igniter.assign(:assay_detected_apps, @detected)
+      |> put_option(:ci, "none")
+      |> put_option(:all_apps, false)
+      |> Install.igniter()
+      |> IgniterTest.apply_igniter!()
+
+    files = igniter.assigns[:test_files]
+    refute Map.has_key?(files, ".github/workflows/assay.yml")
+    refute Map.has_key?(files, ".gitlab-ci.yml")
+  end
+
+  test "installer supports atom-based ci options" do
+    igniter =
+      IgniterTest.test_project(
+        files: %{
+          ".gitignore" => "",
+          "mix.exs" => mixfile()
+        }
+      )
+      |> Igniter.assign(:assay_detected_apps, @detected)
+      |> put_option(:ci, :gitlab)
+      |> put_option(:all_apps, false)
+      |> Install.igniter()
+      |> IgniterTest.apply_igniter!()
+
+    files = igniter.assigns[:test_files]
+    assert Map.fetch!(files, ".gitlab-ci.yml") =~ "mix assay --format github --format sarif"
+  end
+
+  test "installer rejects unsupported ci options" do
+    igniter =
+      IgniterTest.test_project(
+        files: %{
+          ".gitignore" => "",
+          "mix.exs" => mixfile()
+        }
+      )
+      |> Igniter.assign(:assay_detected_apps, @detected)
+      |> put_option(:ci, "circle")
+      |> put_option(:all_apps, false)
+
+    assert_raise ArgumentError, fn ->
+      igniter
+      |> Install.igniter()
+      |> IgniterTest.apply_igniter!()
+    end
   end
 
   defp mixfile do

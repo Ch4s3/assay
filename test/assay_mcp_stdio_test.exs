@@ -51,6 +51,32 @@ defmodule Assay.MCPSTDIOTest do
     assert Task.yield(task, 500)
   end
 
+  test "invalid headers return framed errors", %{daemon: daemon} do
+    {proxy, task} = start_server(daemon)
+
+    IOProxy.push(proxy, "Content-Length: 2\r\nBadHeader\r\n")
+    assert_receive {:io_proxy_output, error_frame}, 500
+    assert decode_frame(error_frame)["error"]["data"]["reason"] == ":invalid_header"
+
+    send_raw(proxy, JSON.encode!(%{"jsonrpc" => "2.0", "id" => 4, "method" => "exit"}) <> "\n")
+    assert_receive {:io_proxy_output, exit_frame}, 500
+    assert decode_frame(exit_frame)["result"]["status"] == "shutting_down"
+    assert Task.yield(task, 500)
+  end
+
+  test "invalid content length returns framed errors", %{daemon: daemon} do
+    {proxy, task} = start_server(daemon)
+
+    IOProxy.push(proxy, "Content-Length: NaN\r\n\r\n")
+    assert_receive {:io_proxy_output, error_frame}, 500
+    assert decode_frame(error_frame)["error"]["data"]["reason"] == ":invalid_content_length"
+
+    send_raw(proxy, JSON.encode!(%{"jsonrpc" => "2.0", "id" => 5, "method" => "exit"}) <> "\n")
+    assert_receive {:io_proxy_output, exit_frame}, 500
+    assert decode_frame(exit_frame)["result"]["status"] == "shutting_down"
+    assert Task.yield(task, 500)
+  end
+
   defp start_server(daemon) do
     proxy = IOProxy.start_link(self())
 

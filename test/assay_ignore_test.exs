@@ -39,6 +39,77 @@ defmodule Assay.IgnoreTest do
       assert entry.match_text == warning_text
       assert entry.text == "lib/sample.ex:3: warning"
     end
+
+    test "handles metadata in warnings and charlist paths" do
+      project_root = Path.expand("tmp/ignore_project_meta")
+      warning_text = "#{project_root}/lib/meta.ex:4: warning"
+
+      Application.put_env(:assay, :dialyzer_warning_text, warning_text)
+
+      [entry] =
+        Ignore.decorate(
+          [{{:warn_return_no_exit, :meta}, {~c"lib/meta.ex", {4, 2, :extra}}, "details"}],
+          project_root
+        )
+
+      assert entry.relative_path == "lib/meta.ex"
+      assert entry.line == 4
+      assert entry.column == 2
+      assert entry.code == :warn_return_no_exit
+    end
+
+    test "handles warnings without locations" do
+      project_root = Path.expand("tmp/ignore_project_nil")
+      warning_text = "warning"
+
+      Application.put_env(:assay, :dialyzer_warning_text, warning_text)
+
+      [entry] =
+        Ignore.decorate(
+          [{:warn_return_no_exit, nil, "details"}],
+          project_root
+        )
+
+      assert entry.path == nil
+      assert entry.relative_path == nil
+      assert entry.line == nil
+      assert entry.column == nil
+    end
+
+    test "handles absolute warning paths" do
+      project_root = Path.expand("tmp/ignore_project_abs")
+      abs_path = Path.join(project_root, "lib/abs.ex")
+      warning_text = "#{abs_path}:1: warning"
+
+      Application.put_env(:assay, :dialyzer_warning_text, warning_text)
+
+      [entry] =
+        Ignore.decorate(
+          [{:warn_return_no_exit, {abs_path, {1, 1}}, "details"}],
+          project_root
+        )
+
+      assert entry.path == abs_path
+      assert entry.relative_path == "lib/abs.ex"
+    end
+
+    test "normalizes atom file names and unknown codes" do
+      project_root = Path.expand("tmp/ignore_project_atom")
+      warning_text = "#{project_root}/sample:10: warning"
+
+      Application.put_env(:assay, :dialyzer_warning_text, warning_text)
+
+      [entry] =
+        Ignore.decorate(
+          [{123, {:sample, 10}, "details"}],
+          project_root
+        )
+
+      assert entry.relative_path == "sample"
+      assert entry.path == Path.join(project_root, "sample")
+      assert entry.line == 10
+      assert entry.code == :unknown
+    end
   end
 
   describe "filter/2" do
@@ -57,6 +128,11 @@ defmodule Assay.IgnoreTest do
 
     test "returns inputs when ignore rules are disabled", %{entry: entry} do
       result = Ignore.filter([entry], nil)
+      assert result == {[entry], [], nil}
+    end
+
+    test "treats false ignore_file as disabled", %{entry: entry} do
+      result = Ignore.filter([entry], false)
       assert result == {[entry], [], nil}
     end
 
@@ -79,6 +155,134 @@ defmodule Assay.IgnoreTest do
       assert path == ignore_file
       assert kept == []
       assert ignored == [entry]
+    end
+
+    test "matches string, regex, and code rules", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_map")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+
+      rules = """
+      [
+        "lib/sample.ex",
+        ~r/ignore/,
+        %{code: :warn_return_no_exit, line: 3, message: "warning"}
+      ]
+      """
+
+      File.write!(ignore_file, rules)
+
+      {kept, ignored, _path} = Ignore.filter([entry], ignore_file)
+
+      assert kept == []
+      assert ignored == [entry]
+    end
+
+    test "matches list patterns for file and code", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_list")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+
+      rules = """
+      [
+        %{relative: ~c"lib/sample.ex", code: ~c"warn_return_no_exit"}
+      ]
+      """
+
+      File.write!(ignore_file, rules)
+
+      {kept, ignored, _path} = Ignore.filter([entry], ignore_file)
+
+      assert kept == []
+      assert ignored == [entry]
+    end
+
+    test "raises when ignore file returns non-list", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_bad")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+      File.write!(ignore_file, ":not_a_list")
+
+      assert_raise Mix.Error, ~r/must return a list/, fn ->
+        Ignore.filter([entry], ignore_file)
+      end
+    end
+
+    test "matches tag-based rules", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_tag")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+      File.write!(ignore_file, ~S([%{tag: :warn_return_no_exit}]))
+
+      {kept, ignored, _path} = Ignore.filter([entry], ignore_file)
+
+      assert kept == []
+      assert ignored == [entry]
+    end
+
+    test "matches file-based rules and charlist patterns", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_file")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+
+      rules = """
+      [
+        %{file: "sample.ex"},
+        ~c"lib/sample.ex",
+        %{code: "warn_return_no_exit"}
+      ]
+      """
+
+      File.write!(ignore_file, rules)
+
+      {kept, ignored, _path} = Ignore.filter([entry], ignore_file)
+
+      assert kept == []
+      assert ignored == [entry]
+    end
+
+    test "raises when ignore file evaluation fails", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_error")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+      File.write!(ignore_file, "raise \"boom\"")
+
+      assert_raise Mix.Error, ~r/Failed to load/, fn ->
+        Ignore.filter([entry], ignore_file)
+      end
+    end
+
+    test "keeps entries when rules do not match", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_keep")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+
+      File.write!(ignore_file, ~S(["other.ex"]))
+
+      {kept, ignored, _path} = Ignore.filter([entry], ignore_file)
+
+      assert kept == [entry]
+      assert ignored == []
+    end
+
+    test "ignores unknown rule keys and invalid patterns", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_unknown")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+
+      rules = """
+      [
+        %{unknown: "value"},
+        %{message: 123}
+      ]
+      """
+
+      File.write!(ignore_file, rules)
+
+      {kept, ignored, _path} = Ignore.filter([entry], ignore_file)
+
+      assert kept == [entry]
+      assert ignored == []
     end
   end
 end

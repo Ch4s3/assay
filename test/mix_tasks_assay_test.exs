@@ -30,6 +30,15 @@ defmodule Mix.Tasks.AssayTest do
     end
   end
 
+  defmodule CleanRootConfigStub do
+    def from_mix_project(_opts \\ []) do
+      root = Process.get(:assay_clean_root) || "/tmp/assay-clean"
+
+      ConfigStub.from_mix_project(project_root: root)
+      |> Map.put(:cache_dir, root)
+    end
+  end
+
   setup do
     Mix.Task.clear()
     Application.put_env(:assay, :config_module, ConfigStub)
@@ -148,6 +157,53 @@ defmodule Mix.Tasks.AssayTest do
     Application.put_env(:assay, :config_module, ConfigStub)
   after
     Process.delete(:assay_clean_root)
+  end
+
+  test "assay.clean reports when the cache directory is missing" do
+    tmp_root =
+      Path.join(System.tmp_dir!(), "assay-clean-missing-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(tmp_root)
+    Process.put(:assay_clean_root, tmp_root)
+    on_exit(fn ->
+      Process.delete(:assay_clean_root)
+      File.rm_rf(tmp_root)
+    end)
+
+    Application.put_env(:assay, :config_module, CleanConfigStub)
+
+    output =
+      capture_io(fn ->
+        Clean.run([])
+      end)
+
+    assert output =~ "No cache directory found at _build/assay"
+
+    Application.put_env(:assay, :config_module, ConfigStub)
+  end
+
+  test "assay.clean uses absolute path when cache dir equals project root" do
+    tmp_root =
+      Path.join(System.tmp_dir!(), "assay-clean-root-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(tmp_root)
+    Process.put(:assay_clean_root, tmp_root)
+    on_exit(fn ->
+      Process.delete(:assay_clean_root)
+      File.rm_rf(tmp_root)
+    end)
+
+    Application.put_env(:assay, :config_module, CleanRootConfigStub)
+
+    output =
+      capture_io(fn ->
+        Clean.run([])
+      end)
+
+    assert output =~ "Removed #{tmp_root}"
+    refute File.exists?(tmp_root)
+
+    Application.put_env(:assay, :config_module, ConfigStub)
   end
 
   test "assay.clean rejects unexpected arguments" do

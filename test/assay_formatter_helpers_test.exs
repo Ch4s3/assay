@@ -10,6 +10,12 @@ defmodule Assay.Formatter.HelpersTest do
       assert Helpers.format_term_lines("%{title => <<116,105,116,108,101>>}") ==
                ["%{title => \"title\"}"]
     end
+
+    test "handles chardata and non-printable bitstrings" do
+      [line] = Helpers.format_term_lines(~c"hello")
+      assert String.contains?(line, "hello")
+      assert Helpers.format_term_lines("<<1,2,3>>") == ["<<1, 2, 3>>"]
+    end
   end
 
   describe "diff_lines/3" do
@@ -39,6 +45,41 @@ defmodule Assay.Formatter.HelpersTest do
       assert Enum.any?(lines, &String.contains?(&1, "+  a => (binary())"))
     end
 
+    test "renders insertions and deletions for missing map keys" do
+      lines =
+        Helpers.diff_lines(
+          ["%{a => 1, b => 2}"],
+          ["%{a => 1, c => 3}"],
+          color?: false
+        )
+        |> List.flatten()
+
+      assert Enum.any?(lines, &String.contains?(&1, "-  b => 2"))
+      assert Enum.any?(lines, &String.contains?(&1, "+  c => 3"))
+    end
+
+    test "formats nested map entries when falling back to Myers diff" do
+      lines =
+        Helpers.diff_lines(
+          ["%{bad, nested => %{alpha => 1, beta => 2}}"],
+          ["%{bad, nested => %{alpha => 1, beta => 3}}"],
+          color?: false
+        )
+        |> List.flatten()
+
+      assert Enum.any?(lines, &String.contains?(&1, "nested => %{"))
+      assert Enum.any?(lines, &String.contains?(&1, "beta => 3"))
+      assert Enum.any?(lines, &String.contains?(&1, "bad"))
+    end
+
+    test "includes ANSI wrappers when color is enabled" do
+      lines =
+        Helpers.diff_lines(["alpha"], ["beta"], color?: true)
+        |> List.flatten()
+
+      assert Enum.any?(lines, &String.contains?(&1, "\e["))
+    end
+
     test "falls back to Myers diff when no structured format matches" do
       lines =
         Helpers.diff_lines(["foo"], ["bar"], color?: false)
@@ -51,6 +92,7 @@ defmodule Assay.Formatter.HelpersTest do
   describe "colorize/3" do
     test "only wraps text when enabled" do
       assert Helpers.colorize("plain", :blue, false) == "plain"
+      assert Helpers.colorize("plain", nil, true) == "plain"
 
       colorized = Helpers.colorize("plain", :blue, true)
       assert String.starts_with?(colorized, "\e[")

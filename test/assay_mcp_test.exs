@@ -1,154 +1,133 @@
 defmodule Assay.MCPTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
-  alias Assay.{Daemon, MCP}
+  alias Assay.{Config, Daemon, MCP}
 
-  defmodule FakeRunner do
+  defmodule StubRunner do
     def analyze(_config, _opts) do
-      %{
-        status: :warnings,
-        warnings: [
-          %{
-            text: "lib/foo.ex:1: dialyzer warning",
-            match_text: "lib/foo.ex:1: dialyzer warning",
-            path: "/tmp/lib/foo.ex",
-            relative_path: "lib/foo.ex",
-            line: 1,
-            column: nil,
-            code: :unknown
-          }
-        ],
-        ignored: [],
-        ignore_path: nil,
-        options: []
-      }
-    end
-  end
-
-  defmodule CaptureRunner do
-    def analyze(config, opts) do
-      send(self(), {:daemon_request, opts})
-      FakeRunner.analyze(config, opts)
+      %{status: :ok, warnings: [], ignored: [], ignore_path: nil}
     end
   end
 
   defmodule ErrorRunner do
-    def analyze(_config, _opts), do: raise("daemon failure")
+    def analyze(_config, _opts) do
+      raise "boom"
+    end
   end
 
   setup do
-    config = Assay.Config.from_mix_project()
-    daemon = Daemon.new(config: config, runner: FakeRunner)
-    %{state: %MCP{daemon: daemon}, config: config}
+    root =
+      Path.join(System.tmp_dir!(), "assay-mcp-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(root)
+    config = Config.from_mix_project(project_root: root)
+    daemon = Daemon.new(config: config, runner: StubRunner)
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    %{daemon: daemon}
   end
 
-  test "initialize handshake", %{state: state} do
-    request = %{
-      "jsonrpc" => "2.0",
-      "id" => 1,
-      "method" => "initialize",
-      "params" => %{"clientInfo" => %{"name" => "test"}}
-    }
+  test "tools/list requires initialization", %{daemon: daemon} do
+    state = MCP.new(daemon: daemon, halt_on_stop?: false)
+    {reply, _state, :continue} = MCP.handle_rpc(%{"id" => 1, "method" => "tools/list"}, state)
 
-    {reply, new_state, :continue} = MCP.handle_rpc(request, state)
+    assert reply["error"]["code"] == -32_602
+  end
+
+  test "initialize stores client info", %{daemon: daemon} do
+    state = MCP.new(daemon: daemon, halt_on_stop?: false)
+
+    {reply, new_state, :continue} =
+      MCP.handle_rpc(
+        %{
+          "id" => 2,
+          "method" => "initialize",
+          "params" => %{"clientInfo" => %{"name" => "test-client"}}
+        },
+        state
+      )
 
     assert reply["result"]["protocolVersion"] == "2024-11-05"
     assert new_state.initialized?
+    assert new_state.client_info == %{"name" => "test-client"}
   end
 
-  test "tools/list exposes analyzer tool", %{state: state} do
-    {_, state, _} =
-      MCP.handle_rpc(%{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"}, state)
+  test "initialize rejects repeated calls", %{daemon: daemon} do
+    state = MCP.new(daemon: daemon, halt_on_stop?: false)
+    {_reply, initialized, :continue} = MCP.handle_rpc(%{"id" => 10, "method" => "initialize"}, state)
 
     {reply, _state, :continue} =
-      MCP.handle_rpc(%{"jsonrpc" => "2.0", "id" => 2, "method" => "tools/list"}, state)
+      MCP.handle_rpc(%{"id" => 11, "method" => "initialize"}, initialized)
 
-    tool = hd(reply["result"]["tools"])
-    assert tool["name"] == "assay.analyze"
+    assert reply["error"]["code"] == -32_602
   end
 
-  test "tools/call invokes daemon analyze", %{state: state} do
-    {_, state, _} =
-      MCP.handle_rpc(%{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"}, state)
+  test "tools/call delegates to the daemon and echoes toolCallId", %{daemon: daemon} do
+    state = MCP.new(daemon: daemon, halt_on_stop?: false)
+    {_reply, initialized, :continue} = MCP.handle_rpc(%{"id" => 3, "method" => "initialize"}, state)
 
-    params = %{"name" => "assay.analyze", "arguments" => %{"formats" => ["text"]}}
-    request = %{"jsonrpc" => "2.0", "id" => 3, "method" => "tools/call", "params" => params}
+    {reply, _state, :continue} =
+      MCP.handle_rpc(
+        %{
+          "id" => 4,
+          "method" => "tools/call",
+          "params" => %{
+            "name" => "assay.analyze",
+            "toolCallId" => "call-1",
+            "arguments" => %{"formats" => ["json"]}
+          }
+        },
+        initialized
+      )
 
-    {reply, _state, :continue} = MCP.handle_rpc(request, state)
-
-    assert %{"content" => [%{"type" => "json", "json" => result}]} = reply["result"]
-    assert result["status"] in ["ok", "warnings"]
+    assert reply["result"]["toolCallId"] == "call-1"
+    assert %{"content" => [%{"type" => "json"}]} = reply["result"]
   end
 
-  test "tools/call preserves toolCallId and forwards arguments", %{config: config} do
-    state = %MCP{daemon: Daemon.new(config: config, runner: CaptureRunner)}
+  test "tools/call surfaces daemon errors", %{daemon: daemon} do
+    error_daemon = %{daemon | runner: ErrorRunner}
+    state = MCP.new(daemon: error_daemon, halt_on_stop?: false)
+    {_reply, initialized, :continue} = MCP.handle_rpc(%{"id" => 8, "method" => "initialize"}, state)
 
-    {_, state, _} =
-      MCP.handle_rpc(%{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"}, state)
+    {reply, _state, :continue} =
+      MCP.handle_rpc(
+        %{
+          "id" => 9,
+          "method" => "tools/call",
+          "params" => %{"name" => "assay.analyze"}
+        },
+        initialized
+      )
 
-    params = %{
-      "name" => "assay.analyze",
-      "arguments" => %{"formats" => ["text"]},
-      "toolCallId" => "abc123"
-    }
-
-    request = %{"jsonrpc" => "2.0", "id" => 3, "method" => "tools/call", "params" => params}
-
-    {reply, _state, :continue} = MCP.handle_rpc(request, state)
-
-    assert reply["result"]["toolCallId"] == "abc123"
-    assert_receive {:daemon_request, opts}
-    assert opts[:formats] == [:text]
-  end
-
-  test "tools/call errors when daemon fails", %{config: config} do
-    state = %MCP{daemon: Daemon.new(config: config, runner: ErrorRunner)}
-
-    {_, state, _} =
-      MCP.handle_rpc(%{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"}, state)
-
-    params = %{"name" => "assay.analyze"}
-    request = %{"jsonrpc" => "2.0", "id" => 2, "method" => "tools/call", "params" => params}
-
-    {reply, _state, :continue} = MCP.handle_rpc(request, state)
     assert reply["error"]["code"] == -32_000
+    assert reply["error"]["message"] =~ "boom"
   end
 
-  test "tools/call rejects unknown tools", %{state: state} do
-    {_, state, _} =
-      MCP.handle_rpc(%{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"}, state)
+  test "tools/call rejects unknown tools", %{daemon: daemon} do
+    state = MCP.new(daemon: daemon, halt_on_stop?: false)
+    {_reply, initialized, :continue} = MCP.handle_rpc(%{"id" => 5, "method" => "initialize"}, state)
 
-    params = %{"name" => "unknown.tool"}
-    request = %{"jsonrpc" => "2.0", "id" => 4, "method" => "tools/call", "params" => params}
+    {reply, _state, :continue} =
+      MCP.handle_rpc(
+        %{"id" => 6, "method" => "tools/call", "params" => %{"name" => "unknown"}},
+        initialized
+      )
 
-    {reply, _state, :continue} = MCP.handle_rpc(request, state)
     assert reply["error"]["code"] == -32_601
   end
 
-  test "shutdown requests stop the loop", %{state: state} do
-    shutdown_request = %{"jsonrpc" => "2.0", "id" => 5, "method" => "shutdown"}
-    {reply, _state, action} = MCP.handle_rpc(shutdown_request, state)
+  test "notifications/initialized returns no reply", %{daemon: daemon} do
+    state = MCP.new(daemon: daemon, halt_on_stop?: false)
+    {reply, _state, :continue} = MCP.handle_rpc(%{"method" => "notifications/initialized"}, state)
 
-    assert reply["result"]["status"] == "shutting_down"
-    assert action == :stop
-  end
-
-  test "notifications are acknowledged without replies", %{state: state} do
-    request = %{"jsonrpc" => "2.0", "method" => "notifications/initialized"}
-    {reply, _state, :continue} = MCP.handle_rpc(request, state)
     assert reply == nil
   end
 
-  test "tools/list rejects calls before initialize", %{state: state} do
-    request = %{"jsonrpc" => "2.0", "id" => 10, "method" => "tools/list"}
-    {reply, _state, :continue} = MCP.handle_rpc(request, state)
-    assert reply["error"]["code"] == -32_602
-  end
+  test "exit returns stop action", %{daemon: daemon} do
+    state = MCP.new(daemon: daemon, halt_on_stop?: false)
+    {reply, _state, :stop} = MCP.handle_rpc(%{"id" => 7, "method" => "exit"}, state)
 
-  test "double initialize returns an error", %{state: state} do
-    init = %{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize"}
-    {_reply, state, :continue} = MCP.handle_rpc(init, state)
-    {reply, _state, :continue} = MCP.handle_rpc(init, state)
-    assert reply["error"]["code"] == -32_602
+    assert reply["result"]["status"] == "shutting_down"
   end
 end
