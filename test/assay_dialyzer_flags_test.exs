@@ -130,9 +130,13 @@ defmodule Assay.DialyzerFlagsTest do
         )
 
       assert {:callgraph_file, Path.expand("tmp/call.graph", @project_root) |> to_charlist()} in opts.options
+
       assert {:mod_deps_file, Path.expand("tmp/deps.graph", @project_root) |> to_charlist()} in opts.options
+
       assert {:metrics_file, Path.expand("tmp/metrics.out", @project_root) |> to_charlist()} in opts.options
+
       assert {:module_lookup_file, Path.expand("tmp/lookup.out", @project_root) |> to_charlist()} in opts.options
+
       assert {:solvers, [:v1]} in opts.options
     end
 

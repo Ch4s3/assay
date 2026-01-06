@@ -165,6 +165,7 @@ defmodule Mix.Tasks.AssayTest do
 
     File.mkdir_p!(tmp_root)
     Process.put(:assay_clean_root, tmp_root)
+
     on_exit(fn ->
       Process.delete(:assay_clean_root)
       File.rm_rf(tmp_root)
@@ -188,6 +189,7 @@ defmodule Mix.Tasks.AssayTest do
 
     File.mkdir_p!(tmp_root)
     Process.put(:assay_clean_root, tmp_root)
+
     on_exit(fn ->
       Process.delete(:assay_clean_root)
       File.rm_rf(tmp_root)

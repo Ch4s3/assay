@@ -55,7 +55,9 @@ defmodule Assay.MCPTest do
 
   test "initialize rejects repeated calls", %{daemon: daemon} do
     state = MCP.new(daemon: daemon, halt_on_stop?: false)
-    {_reply, initialized, :continue} = MCP.handle_rpc(%{"id" => 10, "method" => "initialize"}, state)
+
+    {_reply, initialized, :continue} =
+      MCP.handle_rpc(%{"id" => 10, "method" => "initialize"}, state)
 
     {reply, _state, :continue} =
       MCP.handle_rpc(%{"id" => 11, "method" => "initialize"}, initialized)
@@ -65,7 +67,9 @@ defmodule Assay.MCPTest do
 
   test "tools/call delegates to the daemon and echoes toolCallId", %{daemon: daemon} do
     state = MCP.new(daemon: daemon, halt_on_stop?: false)
-    {_reply, initialized, :continue} = MCP.handle_rpc(%{"id" => 3, "method" => "initialize"}, state)
+
+    {_reply, initialized, :continue} =
+      MCP.handle_rpc(%{"id" => 3, "method" => "initialize"}, state)
 
     {reply, _state, :continue} =
       MCP.handle_rpc(
@@ -88,7 +92,9 @@ defmodule Assay.MCPTest do
   test "tools/call surfaces daemon errors", %{daemon: daemon} do
     error_daemon = %{daemon | runner: ErrorRunner}
     state = MCP.new(daemon: error_daemon, halt_on_stop?: false)
-    {_reply, initialized, :continue} = MCP.handle_rpc(%{"id" => 8, "method" => "initialize"}, state)
+
+    {_reply, initialized, :continue} =
+      MCP.handle_rpc(%{"id" => 8, "method" => "initialize"}, state)
 
     {reply, _state, :continue} =
       MCP.handle_rpc(
@@ -106,7 +112,9 @@ defmodule Assay.MCPTest do
 
   test "tools/call rejects unknown tools", %{daemon: daemon} do
     state = MCP.new(daemon: daemon, halt_on_stop?: false)
-    {_reply, initialized, :continue} = MCP.handle_rpc(%{"id" => 5, "method" => "initialize"}, state)
+
+    {_reply, initialized, :continue} =
+      MCP.handle_rpc(%{"id" => 5, "method" => "initialize"}, state)
 
     {reply, _state, :continue} =
       MCP.handle_rpc(

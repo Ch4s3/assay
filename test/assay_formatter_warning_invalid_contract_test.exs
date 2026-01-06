@@ -10,8 +10,7 @@ defmodule Assay.Formatter.Warning.InvalidContractTest do
         relative_path: "lib/sample.ex",
         line: 12,
         raw:
-          {:warn_contract_types,
-           {~c"lib/sample.ex", {12, 6}},
+          {:warn_contract_types, {~c"lib/sample.ex", {12, 6}},
            {:invalid_contract,
             [
               SampleModule,
@@ -31,7 +30,10 @@ defmodule Assay.Formatter.Warning.InvalidContractTest do
       assert "Call: SampleModule.foo/2" in result.details
 
       assert Enum.any?(result.details, fn line ->
-               String.contains?(line, "Invalid contract for 1st and 2nd arguments and the return type.")
+               String.contains?(
+                 line,
+                 "Invalid contract for 1st and 2nd arguments and the return type."
+               )
              end)
 
       assert Enum.any?(result.details, fn line ->
@@ -42,8 +44,7 @@ defmodule Assay.Formatter.Warning.InvalidContractTest do
     test "falls back when relative context is missing" do
       entry = %{
         raw:
-          {:warn_contract_types,
-           nil,
+          {:warn_contract_types, nil,
            {:invalid_contract, [SampleModule, :bar, 1, :none, nil, nil]}},
         relative_path: nil,
         line: nil
@@ -73,9 +74,9 @@ defmodule Assay.Formatter.Warning.InvalidContractTest do
     test "summarizes argument-only and return-only mismatches" do
       entry_args = %{
         raw:
-          {:warn_contract_types,
-           nil,
-           {:invalid_contract, [SampleModule, :baz, 1, {[2], false}, "(atom()) :: atom()", "(atom()) :: atom()"]}},
+          {:warn_contract_types, nil,
+           {:invalid_contract,
+            [SampleModule, :baz, 1, {[2], false}, "(atom()) :: atom()", "(atom()) :: atom()"]}},
         relative_path: nil,
         line: nil
       }
@@ -88,8 +89,7 @@ defmodule Assay.Formatter.Warning.InvalidContractTest do
 
       entry_return = %{
         raw:
-          {:warn_contract_types,
-           nil,
+          {:warn_contract_types, nil,
            {:invalid_contract, [SampleModule, :baz, 1, {[], true}, nil, nil]}},
         relative_path: nil,
         line: nil
@@ -105,8 +105,7 @@ defmodule Assay.Formatter.Warning.InvalidContractTest do
     test "handles unknown detail values" do
       entry = %{
         raw:
-          {:warn_contract_types,
-           nil,
+          {:warn_contract_types, nil,
            {:invalid_contract, [SampleModule, :baz, 1, :unexpected, nil, nil]}},
         relative_path: nil,
         line: nil

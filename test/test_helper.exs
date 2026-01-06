@@ -2,11 +2,13 @@
 # This helps the cover tool find its stylesheet
 try do
   :code.ensure_loaded(:tools)
+
   case :code.priv_dir(:tools) do
     {:error, _} ->
       # Tools application not found - coverage HTML reports may fail
       # but coverage data collection should still work
       :ok
+
     _ ->
       # Tools found, try to start it if it's an application
       Application.ensure_all_started(:tools)

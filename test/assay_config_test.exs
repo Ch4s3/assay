@@ -45,7 +45,8 @@ defmodule Assay.ConfigTest do
   end
 
   test "from_mix_project expands project+deps selector" do
-    with_project([apps: ["project+deps"], warning_apps: ["current"]], fn project_app, _project_dir ->
+    with_project([apps: ["project+deps"], warning_apps: ["current"]], fn project_app,
+                                                                         _project_dir ->
       config = Config.from_mix_project(dependency_apps: [:dep_one])
 
       assert project_app in config.apps
@@ -70,7 +71,8 @@ defmodule Assay.ConfigTest do
   end
 
   test "from_mix_project expands ignore_file paths" do
-    with_project([apps: [:project], warning_apps: [:project], ignore_file: "ignore.exs"], fn _app, _project_dir ->
+    with_project([apps: [:project], warning_apps: [:project], ignore_file: "ignore.exs"], fn _app,
+                                                                                             _project_dir ->
       config = Config.from_mix_project()
       assert String.ends_with?(config.ignore_file, "/ignore.exs")
     end)

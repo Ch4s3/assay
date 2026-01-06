@@ -76,7 +76,11 @@ defmodule Assay.DaemonTest do
     test "runs analysis and normalizes request formats" do
       state = Daemon.new(config: base_config(), runner: Assay.DaemonTestRunner)
 
-      request = %{"id" => 1, "method" => "assay/analyze", "params" => %{"formats" => ["json", :llm, 123]}}
+      request = %{
+        "id" => 1,
+        "method" => "assay/analyze",
+        "params" => %{"formats" => ["json", :llm, 123]}
+      }
 
       {reply, new_state, :continue} = Daemon.handle_rpc(request, state)
 
@@ -137,7 +141,11 @@ defmodule Assay.DaemonTest do
       assert new_state.config.cache_dir == "/tmp/new_cache"
       assert new_state.overrides == %{apps: [:foo], cache_dir: "/tmp/new_cache"}
 
-      request = %{"method" => "assay/setConfig", "id" => 5, "params" => %{"config" => %{"bad" => "value"}}}
+      request = %{
+        "method" => "assay/setConfig",
+        "id" => 5,
+        "params" => %{"config" => %{"bad" => "value"}}
+      }
 
       {reply, _state, :continue} = Daemon.handle_rpc(request, state)
       assert reply["error"]["code"] == -32_602
@@ -219,7 +227,9 @@ defmodule Assay.DaemonTest do
         }
 
       {_reply, updated, :continue} = Daemon.handle_rpc(request, state)
-      {reply, _state, :continue} = Daemon.handle_rpc(%{"method" => "assay/getConfig", "id" => 12}, updated)
+
+      {reply, _state, :continue} =
+        Daemon.handle_rpc(%{"method" => "assay/getConfig", "id" => 12}, updated)
 
       assert reply["result"]["overrides"] == %{
                "warning_apps" => ["demo"],
