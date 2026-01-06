@@ -258,7 +258,7 @@ defmodule Assay.Formatter do
          {:ok, contents} <- File.read(path),
          lines_list when is_list(lines_list) <- fetch_context_lines(contents, line, 2) do
       digits = max_line_digits(lines_list)
-      error_line_idx = Enum.find_index(lines_list, & &1.line == line)
+      error_line_idx = Enum.find_index(lines_list, &(&1.line == line))
 
       snippet_lines =
         lines_list

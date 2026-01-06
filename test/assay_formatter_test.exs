@@ -34,10 +34,12 @@ defmodule Assay.FormatterTest do
     assert result =~ "│   (return no exit)"
     assert result =~ "1 │ defmodule Foo do"
     assert result =~ "2 │   def bar(arg), do: arg"
-    assert result =~ "~~~"  # Underline instead of caret
+    # Underline instead of caret
+    assert result =~ "~~~"
     assert result =~ "3 │ end"
     assert result =~ "Foo.bar/1 has no local return"
-    assert result =~ "Suggestion:"  # Suggestions are now included
+    # Suggestions are now included
+    assert result =~ "Suggestion:"
   end
 
   test "text formatter falls back when file context is missing", %{tmp_dir: tmp_dir} do

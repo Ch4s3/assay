@@ -47,7 +47,15 @@ defmodule Assay.Formatter.Warning do
 
   alias __MODULE__.Result
   alias Assay.Formatter.Helpers
-  alias Assay.Formatter.Warning.{ContractDiff, FailingCall, InvalidContract, Matching, NotCalled, ReturnNoExit}
+
+  alias Assay.Formatter.Warning.{
+    ContractDiff,
+    FailingCall,
+    InvalidContract,
+    Matching,
+    NotCalled,
+    ReturnNoExit
+  }
 
   @handlers %{
     warn_failing_call: [FailingCall],

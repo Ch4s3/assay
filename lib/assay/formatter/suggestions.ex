@@ -50,7 +50,8 @@ defmodule Assay.Formatter.Suggestions do
     ]
 
     if function_name do
-      ["This function is never called.", "Function: #{function_name}"] ++ Enum.drop(suggestions, 1)
+      ["This function is never called.", "Function: #{function_name}"] ++
+        Enum.drop(suggestions, 1)
     else
       suggestions
     end
@@ -85,7 +86,11 @@ defmodule Assay.Formatter.Suggestions do
 
   defp add_context_suggestions(suggestions, :warn_failing_call, entry) do
     case entry do
-      %{raw: {:warn_failing_call, _loc, {:call, [module, fun, actual, positions, mode, expected | _]}}} ->
+      %{
+        raw:
+          {:warn_failing_call, _loc,
+           {:call, [module, fun, actual, positions, mode, expected | _]}}
+      } ->
         # Extract all available context
         call_name = Warning.format_call(module, fun)
         position_info = format_positions(positions)
@@ -93,11 +98,15 @@ defmodule Assay.Formatter.Suggestions do
         mode_info = format_mode(mode)
 
         # Build detailed context block
-        context_items = []
-        |> maybe_add("  Function call: #{call_name}", true)
-        |> maybe_add("  Problematic argument position(s): #{position_info}", not is_nil(position_info))
-        |> maybe_add("  Type mismatch: #{type_diff}", not is_nil(type_diff))
-        |> maybe_add("  Analysis mode: #{mode_info}", not is_nil(mode_info))
+        context_items =
+          []
+          |> maybe_add("  Function call: #{call_name}", true)
+          |> maybe_add(
+            "  Problematic argument position(s): #{position_info}",
+            not is_nil(position_info)
+          )
+          |> maybe_add("  Type mismatch: #{type_diff}", not is_nil(type_diff))
+          |> maybe_add("  Analysis mode: #{mode_info}", not is_nil(mode_info))
 
         context_lines =
           if Enum.empty?(context_items) do
@@ -137,7 +146,11 @@ defmodule Assay.Formatter.Suggestions do
 
   defp add_context_suggestions(suggestions, :warn_contract_subtype, entry) do
     case entry do
-      %{raw: {:warn_contract_subtype, _loc, {:contract_subtype, [module, fun, arity, _contract, _success]}}} ->
+      %{
+        raw:
+          {:warn_contract_subtype, _loc,
+           {:contract_subtype, [module, fun, arity, _contract, _success]}}
+      } ->
         suggestions ++
           [
             "",
@@ -156,7 +169,11 @@ defmodule Assay.Formatter.Suggestions do
 
   defp add_context_suggestions(suggestions, :warn_contract_supertype, entry) do
     case entry do
-      %{raw: {:warn_contract_supertype, _loc, {:contract_supertype, [module, fun, arity, _contract, _success]}}} ->
+      %{
+        raw:
+          {:warn_contract_supertype, _loc,
+           {:contract_supertype, [module, fun, arity, _contract, _success]}}
+      } ->
         suggestions ++
           [
             "",
@@ -223,9 +240,10 @@ defmodule Assay.Formatter.Suggestions do
   defp add_context_suggestions(suggestions, _code, _entry), do: suggestions
 
   defp extract_contract_issue_details({:invalid_contract, {args, return?}}) when is_list(args) do
-    parts = []
-    |> maybe_add("argument(s) #{format_arg_positions(args)}", args != [])
-    |> maybe_add("return type", return?)
+    parts =
+      []
+      |> maybe_add("argument(s) #{format_arg_positions(args)}", args != [])
+      |> maybe_add("return type", return?)
 
     desc =
       case parts do
@@ -272,7 +290,8 @@ defmodule Assay.Formatter.Suggestions do
   defp format_mode(:only_sig), do: "only signature available (no implementation)"
   defp format_mode(_), do: nil
 
-  defp suggest_argument_fixes(positions, _actual, _expected) when is_list(positions) and positions != [] do
+  defp suggest_argument_fixes(positions, _actual, _expected)
+       when is_list(positions) and positions != [] do
     if length(positions) > 1 do
       [
         "",
@@ -291,8 +310,13 @@ defmodule Assay.Formatter.Suggestions do
 
   defp add_type_suggestions(suggestions, :warn_failing_call, entry) do
     case entry do
-      %{raw: {:warn_failing_call, _loc, {:call, [_module, _fun, actual, _positions, _mode, expected | _]}}} ->
+      %{
+        raw:
+          {:warn_failing_call, _loc,
+           {:call, [_module, _fun, actual, _positions, _mode, expected | _]}}
+      } ->
         type_hint = suggest_type_fix(actual, expected)
+
         if type_hint do
           suggestions ++ ["", "Type hint:", "  #{type_hint}"]
         else
@@ -605,7 +629,7 @@ defmodule Assay.Formatter.Suggestions do
           {:halt, acc}
 
         true ->
-          {:cont, [line | (acc || [])]}
+          {:cont, [line | acc || []]}
       end
     end)
   end
@@ -654,6 +678,7 @@ defmodule Assay.Formatter.Suggestions do
   defp detect_unreachable_code?(lines, target_line_num, _function_context) do
     # Check if this line is after an exit/raise/throw
     lines_before = Enum.take(lines, target_line_num - 1)
+
     Enum.any?(lines_before, fn line ->
       Regex.match?(~r/\b(exit|raise|throw)\s*\(/, line)
     end)
@@ -716,8 +741,8 @@ defmodule Assay.Formatter.Suggestions do
       Enum.slice(body_lines, 0, first_recursion_idx)
       |> Enum.any?(fn line ->
         # Early return patterns
+        # Pattern match that doesn't recurse
         Regex.match?(~r/\b(return|when.*->)/, line) or
-          # Pattern match that doesn't recurse
           Regex.match?(~r/^\s*[^#]*->\s*[^#]*$/, line)
       end)
     else
@@ -786,6 +811,7 @@ defmodule Assay.Formatter.Suggestions do
   end
 
   defp format_suggestions([]), do: []
+
   defp format_suggestions(suggestions) do
     ["", "Suggestion:"] ++ Enum.map(suggestions, &"  #{&1}")
   end
