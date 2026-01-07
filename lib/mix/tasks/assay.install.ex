@@ -32,7 +32,7 @@ defmodule Mix.Tasks.Assay.Install do
     alias Rewrite.Source, as: Source
 
     @shortdoc "Install Assay and configure a project via Igniter"
-    @assay_version Mix.Project.config()[:version] || "0.1.0"
+    @assay_version Mix.Project.config()[:version] || "0.2.0"
 
     @impl Igniter.Mix.Task
     def supports_umbrella?, do: true

@@ -29,7 +29,7 @@ The easiest way to install Assay is using the Igniter-powered installer. First, 
 ```elixir
 def deps do
   [
-    {:assay, "~> 0.1", runtime: false, only: [:dev, :test]},
+    {:assay, "~> 0.2", runtime: false, only: [:dev, :test]},
     {:igniter, "~> 0.6", optional: false}
   ]
 end
@@ -60,7 +60,7 @@ If you prefer not to use Igniter, you can configure Assay manually:
 ```elixir
 def deps do
   [
-    {:assay, "~> 0.1", runtime: false, only: [:dev, :test]}
+    {:assay, "~> 0.2", runtime: false, only: [:dev, :test]}
   ]
 end
 ```
