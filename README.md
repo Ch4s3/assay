@@ -1,7 +1,8 @@
 # Assay
 
 [![Hex.pm](https://img.shields.io/hexpm/v/assay.svg)](https://hex.pm/packages/assay)
-[![GitHub Actions](https://github.com/Ch4s3/assay/actions/workflows/assay.yml/badge.svg?branch=main)](https://github.com/Ch4s3/assay/actions)
+[![HexDocs](https://img.shields.io/badge/hexdocs-documentation-B1A5EE)](https://hexdocs.pm/assay)
+[![GitHub Actions](https://github.com/Ch4s3/assay/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Ch4s3/assay/actions)
 
 Incremental Dialyzer for modern Elixir tooling. Assay reads Dialyzer settings
 directly from your host app's `mix.exs`, runs the incremental engine, filters

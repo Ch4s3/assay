@@ -11,7 +11,8 @@ defmodule Assay.MixProject do
       package: package(),
       deps: deps(),
       assay: assay(),
-      test_coverage: [output: "cover"]
+      test_coverage: [output: "cover"],
+      docs: docs()
     ]
   end
 
@@ -62,6 +63,14 @@ defmodule Assay.MixProject do
       links: %{
         "GitHub" => "https://github.com/Ch4s3/assay"
       }
+    ]
+  end
+
+  defp docs do
+    [
+      extras: ["README.md"],
+      main: "readme",
+      source_url: "https://github.com/Ch4s3/assay"
     ]
   end
 end
