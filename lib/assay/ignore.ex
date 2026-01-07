@@ -71,6 +71,9 @@ defmodule Assay.Ignore do
   the `file_path` is the ignore file that was loaded or `nil` when no file was
   used.
 
+  When `explain?: true` is passed in opts, the ignored entries will include
+  a `:matched_rules` field containing the list of rules that matched.
+
   ## Examples
 
       # Filter with string rule
@@ -99,8 +102,10 @@ defmodule Assay.Ignore do
       {kept, ignored, path} = Assay.Ignore.filter([entry], "dialyzer_ignore.exs")
       # If ignore file exists and matches, entry is in ignored list
   """
-  @spec filter([entry()], binary() | nil) :: {[entry()], [entry()], binary() | nil}
-  def filter(entries, ignore_file) do
+  @spec filter([entry()], binary() | nil, keyword()) :: {[entry()], [entry()], binary() | nil}
+  def filter(entries, ignore_file, opts \\ []) do
+    explain? = Keyword.get(opts, :explain?, false)
+
     case load_rules(ignore_file) do
       {:disabled, _} ->
         {entries, [], nil}
@@ -109,9 +114,40 @@ defmodule Assay.Ignore do
         {entries, [], nil}
 
       {:ok, rules, path} ->
-        {ignored, kept} = Enum.split_with(entries, &ignored?(&1, rules))
-        {kept, ignored, path}
+        if explain? do
+          filter_with_explanation(entries, rules, path)
+        else
+          {ignored, kept} = Enum.split_with(entries, &ignored?(&1, rules))
+          {kept, ignored, path}
+        end
     end
+  end
+
+  defp filter_with_explanation(entries, rules, path) do
+    {ignored, kept} =
+      Enum.split_with(entries, fn entry ->
+        matched = find_matching_rules(entry, rules)
+        matched != []
+      end)
+      |> then(fn {ignored_entries, kept} ->
+        # Add matched_rules to all ignored entries
+        ignored =
+          Enum.map(ignored_entries, fn entry ->
+            matched = find_matching_rules(entry, rules)
+            Map.put(entry, :matched_rules, matched)
+          end)
+
+        {ignored, kept}
+      end)
+
+    {kept, ignored, path}
+  end
+
+  defp find_matching_rules(entry, rules) do
+    rules
+    |> Enum.with_index()
+    |> Enum.filter(fn {rule, _idx} -> rule_matches?(rule, entry) end)
+    |> Enum.map(fn {rule, idx} -> {idx, rule} end)
   end
 
   defp load_rules(nil), do: {:disabled, []}

@@ -146,7 +146,10 @@ defmodule Assay.Config do
 
     apps = include_optional_apps(apps_base)
 
-    ignore_file = Keyword.get(dialyzer_config, :ignore_file, "dialyzer_ignore.exs")
+    ignore_file =
+      Keyword.get(opts, :ignore_file) ||
+        Keyword.get(dialyzer_config, :ignore_file, "dialyzer_ignore.exs")
+
     warnings = list_option(dialyzer_config, :warnings, [])
     normalized_ignore = normalize_ignore_file(ignore_file, project_root)
 

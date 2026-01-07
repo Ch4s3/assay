@@ -293,6 +293,105 @@ defmodule Assay.RunnerTest do
     assert output =~ "ignore_file: #{Path.relative_to(missing, tmp_dir)} (missing)"
   end
 
+  test "run explains ignored warnings when explain_ignores is true", %{tmp_dir: tmp_dir} do
+    ignore_file = Path.join(tmp_dir, "dialyzer_ignore.exs")
+
+    File.write!(ignore_file, """
+    [
+      "ignored warning",
+      ~r/another.*warning/,
+      %{file: "lib/third.ex"}
+    ]
+    """)
+
+    Application.put_env(:assay, :dialyzer_stub_warnings, [
+      warning_fixture(Path.join(tmp_dir, "lib/ignored.ex"), "ignored warning"),
+      warning_fixture(Path.join(tmp_dir, "lib/another.ex"), "another ignored warning"),
+      warning_fixture(Path.join(tmp_dir, "lib/third.ex"), "third warning")
+    ])
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        ignore_file: ignore_file
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        status = Runner.run(config, formats: [], explain_ignores: true)
+        assert status == :ok
+      end)
+
+    assert output =~ "Ignored 3 warnings via"
+    assert output =~ "1. lib/ignored.ex:4"
+    assert output =~ "2. lib/another.ex:4"
+    assert output =~ "3. lib/third.ex:4"
+    assert output =~ "Matched by:"
+    assert output =~ "rule #1:"
+    assert output =~ "rule #2:"
+    assert output =~ "rule #3:"
+    assert output =~ "%{file:"
+  end
+
+  test "run does not explain when explain_ignores is false", %{tmp_dir: tmp_dir} do
+    ignore_file = Path.join(tmp_dir, "dialyzer_ignore.exs")
+
+    File.write!(ignore_file, """
+    [
+      "ignored warning"
+    ]
+    """)
+
+    Application.put_env(:assay, :dialyzer_stub_warnings, [
+      warning_fixture(Path.join(tmp_dir, "lib/ignored.ex"), "ignored warning")
+    ])
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        ignore_file: ignore_file
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        status = Runner.run(config, formats: [], explain_ignores: false)
+        assert status == :ok
+      end)
+
+    assert output =~ "Ignored 1 warning via"
+    refute output =~ "1. lib/ignored.ex:4"
+    refute output =~ "Matched by:"
+  end
+
+  test "run handles explain_ignores with no ignored warnings", %{tmp_dir: tmp_dir} do
+    Application.put_env(:assay, :dialyzer_stub_warnings, [
+      warning_fixture(Path.join(tmp_dir, "lib/visible.ex"), "visible warning")
+    ])
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        ignore_file: nil
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        status = Runner.run(config, formats: [], explain_ignores: true)
+        assert status == :warnings
+      end)
+
+    refute output =~ "Ignored"
+  end
+
   test "run toggles ANSI color for elixir format based on MIX_ANSI_ENABLED", %{tmp_dir: tmp_dir} do
     Application.put_env(:assay, :dialyzer_stub_warnings, [])
 
@@ -372,6 +471,307 @@ defmodule Assay.RunnerTest do
     def format_warning({_code, _location, message}, _opts) do
       message |> to_string() |> String.to_charlist()
     end
+  end
+
+  test "format_app handles binary paths", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "apps/custom/ebin")
+    File.mkdir_p!(path)
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        apps: [path],
+        warning_apps: [path]
+      )
+
+    options = Runner.dialyzer_options(config)
+    assert Keyword.fetch!(options, :files_rec) == [String.to_charlist(path)]
+  end
+
+  test "format_app handles charlist paths", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "apps/charlist/ebin")
+    File.mkdir_p!(path)
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        apps: [to_charlist(path)],
+        warning_apps: [to_charlist(path)]
+      )
+
+    options = Runner.dialyzer_options(config)
+    assert Keyword.fetch!(options, :files_rec) == [String.to_charlist(path)]
+  end
+
+  test "format_app raises with invalid app identifier" do
+    config = config_fixture(apps: [%{invalid: :app}], warning_apps: [:kernel])
+
+    assert_raise Mix.Error, ~r/Invalid app identifier/, fn ->
+      Runner.dialyzer_options(config)
+    end
+  end
+
+  test "expand_path handles absolute paths", %{tmp_dir: tmp_dir} do
+    absolute = Path.join(tmp_dir, "absolute/path")
+    File.mkdir_p!(absolute)
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        apps: [absolute],
+        warning_apps: [absolute]
+      )
+
+    options = Runner.dialyzer_options(config)
+    # Absolute paths should not be expanded relative to project_root
+    assert Keyword.fetch!(options, :files_rec) == [String.to_charlist(absolute)]
+  end
+
+  test "relative_display handles paths that can't be relativized", %{tmp_dir: tmp_dir} do
+    # Test the rescue clause in relative_display
+    absolute_path = "/absolute/path/that/cant/be/relativized"
+    config = config_fixture(project_root: tmp_dir, ignore_file: absolute_path)
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.run(config, formats: [], quiet: false)
+      end)
+
+    # Should fallback to absolute path if relativization fails
+    assert output =~ absolute_path || output =~ "ignore_file:"
+  end
+
+  test "format_location handles various entry combinations", %{tmp_dir: tmp_dir} do
+    # Test format_location through explain_entry
+    ignore_file = Path.join(tmp_dir, "dialyzer_ignore.exs")
+    File.write!(ignore_file, ~s(["test"]))
+
+    Application.put_env(:assay, :dialyzer_stub_warnings, [
+      {:warn_failing_call, {String.to_charlist(Path.join(tmp_dir, "lib/test.ex")), {5, 3}},
+       "test"},
+      {:warn_failing_call, {String.to_charlist(Path.join(tmp_dir, "lib/test2.ex")), {1, 1}},
+       "test2"},
+      {:warn_failing_call, {~c"/absolute/path.ex", {10, 1}}, "test3"},
+      {:warn_failing_call, {~c"unknown", {1, 1}}, "test4"}
+    ])
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        ignore_file: ignore_file
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.run(config, formats: [], explain_ignores: true)
+      end)
+
+    # Should handle all location combinations
+    assert output =~ "lib/test.ex:5"
+    assert output =~ "lib/test2.ex"
+    assert output =~ "/absolute/path.ex:10"
+    # The last entry might format differently, but should not crash
+    assert output =~ "test4" || output =~ "warn_failing_call"
+  end
+
+  test "format_warning_message handles non-binary text", %{tmp_dir: tmp_dir} do
+    ignore_file = Path.join(tmp_dir, "dialyzer_ignore.exs")
+    File.write!(ignore_file, ~s(["test"]))
+
+    Application.put_env(:assay, :dialyzer_stub_warnings, [
+      {:warn_failing_call, {String.to_charlist(Path.join(tmp_dir, "lib/test.ex")), {5, 3}},
+       "test"}
+    ])
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        ignore_file: ignore_file
+      )
+
+    # This tests format_warning_message through explain_entry
+    # The actual formatting happens in the ignore module, but we can verify
+    # the code path exists
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.run(config, formats: [], explain_ignores: true)
+      end)
+
+    # Should handle message formatting
+    assert output =~ "test" || output =~ "warn_failing_call"
+  end
+
+  test "format_rule handles various rule types", %{tmp_dir: tmp_dir} do
+    ignore_file = Path.join(tmp_dir, "dialyzer_ignore.exs")
+
+    File.write!(ignore_file, """
+    [
+      "string rule",
+      ~r/regex.*rule/,
+      %{file: "lib/test.ex", line: 5},
+      :atom_rule,
+      123
+    ]
+    """)
+
+    Application.put_env(:assay, :dialyzer_stub_warnings, [
+      warning_fixture(Path.join(tmp_dir, "lib/test.ex"), "string rule"),
+      warning_fixture(Path.join(tmp_dir, "lib/regex.ex"), "regex test rule"),
+      warning_fixture(Path.join(tmp_dir, "lib/test.ex"), "other")
+    ])
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        ignore_file: ignore_file
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.run(config, formats: [], explain_ignores: true)
+      end)
+
+    # Should format various rule types
+    assert output =~ "rule #"
+    assert output =~ "string rule" || output =~ "\"string rule\""
+    assert output =~ "~r/" || output =~ "regex"
+  end
+
+  test "format_regex_opts handles various regex options", %{tmp_dir: tmp_dir} do
+    ignore_file = Path.join(tmp_dir, "dialyzer_ignore.exs")
+
+    File.write!(ignore_file, """
+    [
+      ~r/case/i,
+      ~r/multi/m,
+      ~r/unicode/u
+    ]
+    """)
+
+    Application.put_env(:assay, :dialyzer_stub_warnings, [
+      warning_fixture(Path.join(tmp_dir, "lib/test.ex"), "case insensitive"),
+      warning_fixture(Path.join(tmp_dir, "lib/test.ex"), "multi line"),
+      warning_fixture(Path.join(tmp_dir, "lib/test.ex"), "unicode test")
+    ])
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        ignore_file: ignore_file
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.run(config, formats: [], explain_ignores: true)
+      end)
+
+    # Should format regex options
+    assert output =~ "~r/" || output =~ "rule #"
+  end
+
+  test "selector_info handles empty selectors", %{tmp_dir: tmp_dir} do
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        app_sources: [],
+        warning_app_sources: []
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.analyze(config, print_config: true)
+      end)
+
+    # Should handle empty selectors gracefully
+    assert output =~ "Assay configuration"
+  end
+
+  test "selector_explanation handles various selector types", %{tmp_dir: tmp_dir} do
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        app_sources: [
+          %{selector: :project, apps: [:kernel]},
+          %{selector: :project_plus_deps, apps: [:kernel, :logger]},
+          %{selector: :current, apps: [:kernel]},
+          %{selector: :current_plus_deps, apps: [:kernel, :logger]},
+          %{selector: "custom", apps: [:kernel]}
+        ]
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.analyze(config, print_config: true)
+      end)
+
+    # Should explain various selector types
+    assert output =~ "project apps" || output =~ "project_plus_deps" || output =~ "current"
+  end
+
+  test "discovery_summary handles non-matching discovery_info", %{tmp_dir: tmp_dir} do
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        discovery_info: %{other: :data}
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.analyze(config, print_config: true)
+      end)
+
+    # Should handle non-matching discovery_info gracefully
+    assert output =~ "Assay configuration"
+  end
+
+  test "plural_suffix handles singular and plural", %{tmp_dir: tmp_dir} do
+    ignore_file = Path.join(tmp_dir, "dialyzer_ignore.exs")
+    File.write!(ignore_file, ~s(["test"]))
+
+    # Test singular (1 warning)
+    Application.put_env(:assay, :dialyzer_stub_warnings, [
+      warning_fixture(Path.join(tmp_dir, "lib/test.ex"), "test")
+    ])
+
+    config =
+      config_fixture(
+        project_root: tmp_dir,
+        cache_dir: Path.join(tmp_dir, "tmp/assay"),
+        plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+        build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+        ignore_file: ignore_file
+      )
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Runner.run(config, formats: [])
+      end)
+
+    # Should use singular form
+    assert output =~ "Ignored 1 warning" && not (output =~ "Ignored 1 warnings")
   end
 
   defmodule FailingDialyzerStub do

@@ -265,6 +265,43 @@ defmodule Assay.IgnoreTest do
       assert ignored == []
     end
 
+    test "tracks matched rules when explain? is true", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_explain")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+
+      File.write!(ignore_file, ~S(["lib/sample.ex", ~r/warning/]))
+
+      {kept, ignored, _path} = Ignore.filter([entry], ignore_file, explain?: true)
+
+      assert kept == []
+      assert length(ignored) == 1
+
+      [ignored_entry] = ignored
+      assert Map.has_key?(ignored_entry, :matched_rules)
+      matched_rules = ignored_entry.matched_rules
+      assert length(matched_rules) == 2
+      # Should have both rules (index 0 and 1)
+      assert {0, _} = Enum.find(matched_rules, fn {idx, _} -> idx == 0 end)
+      assert {1, _} = Enum.find(matched_rules, fn {idx, _} -> idx == 1 end)
+    end
+
+    test "does not track matched rules when explain? is false", %{entry: entry} do
+      project_root = Path.expand("tmp/ignore_project_no_explain")
+      ignore_file = Path.join(project_root, "dialyzer_ignore.exs")
+      File.mkdir_p!(Path.dirname(ignore_file))
+
+      File.write!(ignore_file, ~S(["lib/sample.ex"]))
+
+      {kept, ignored, _path} = Ignore.filter([entry], ignore_file, explain?: false)
+
+      assert kept == []
+      assert length(ignored) == 1
+
+      [ignored_entry] = ignored
+      refute Map.has_key?(ignored_entry, :matched_rules)
+    end
+
     test "ignores unknown rule keys and invalid patterns", %{entry: entry} do
       project_root = Path.expand("tmp/ignore_project_unknown")
       ignore_file = Path.join(project_root, "dialyzer_ignore.exs")

@@ -10,6 +10,8 @@ defmodule Mix.Tasks.Assay do
   * `--apps APP1,APP2` - Override apps list (comma-separated)
   * `--warning-apps APP1,APP2` - Override warning_apps list (comma-separated)
   * `--dialyzer-flag FLAG` - Pass additional Dialyzer flags
+  * `--ignore-file PATH` - Override ignore file path (default: `dialyzer_ignore.exs`)
+  * `--explain-ignores` - Show detailed information about which warnings were ignored and which rules matched them
 
   ## Exit Codes
 
@@ -24,6 +26,8 @@ defmodule Mix.Tasks.Assay do
       mix assay --format github --format sarif
       mix assay --apps my_app,my_dep
       mix assay --dialyzer-flag="--statistics"
+      mix assay --ignore-file="custom_ignore.exs"
+      mix assay --explain-ignores
   """
   use Mix.Task
 
@@ -52,7 +56,9 @@ defmodule Mix.Tasks.Assay do
           print_config: :boolean,
           format: :string,
           apps: :string,
-          warning_apps: :string
+          warning_apps: :string,
+          ignore_file: :string,
+          explain_ignores: :boolean
         ],
         aliases: [f: :format]
       )
@@ -82,9 +88,11 @@ defmodule Mix.Tasks.Assay do
       []
       |> Keyword.put(:print_config, Keyword.get(opts, :print_config, false))
       |> Keyword.put(:formats, normalized_formats)
+      |> Keyword.put(:explain_ignores, Keyword.get(opts, :explain_ignores, false))
       |> maybe_put(:apps, apps_override)
       |> maybe_put(:warning_apps, warning_override)
       |> maybe_put(:dialyzer_flags, flag_overrides)
+      |> maybe_put(:ignore_file, Keyword.get(opts, :ignore_file))
 
     if argv != [] do
       Mix.raise("Unexpected arguments: #{Enum.join(argv, ", ")}")

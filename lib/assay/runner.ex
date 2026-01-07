@@ -23,8 +23,14 @@ defmodule Assay.Runner do
 
     result = analyze(config, opts)
 
+    explain_ignores? = Keyword.get(opts, :explain_ignores, false)
+
     unless quiet? do
-      log_ignored(result.ignored, result.ignore_path, config.project_root)
+      if explain_ignores? do
+        explain_ignored(result.ignored, result.ignore_path, config.project_root)
+      else
+        log_ignored(result.ignored, result.ignore_path, config.project_root)
+      end
     end
 
     formats = opts[:formats] || [:text]
@@ -99,7 +105,11 @@ defmodule Assay.Runner do
     warnings = run_dialyzer(options)
 
     entries = Ignore.decorate(warnings, config.project_root)
-    {visible, ignored, ignore_path} = Ignore.filter(entries, config.ignore_file)
+    explain? = Keyword.get(opts, :explain_ignores, false)
+
+    {visible, ignored, ignore_path} =
+      Ignore.filter(entries, config.ignore_file, explain?: explain?)
+
     status = if visible == [], do: :ok, else: :warnings
 
     %{
@@ -214,6 +224,132 @@ defmodule Assay.Runner do
     Mix.shell().info(
       "Ignored #{count} warning#{plural_suffix(count)} via #{relative_display(path, root)}"
     )
+  end
+
+  defp explain_ignored([], _path, _root), do: :ok
+
+  defp explain_ignored(ignored, path, root) do
+    count = length(ignored)
+    relative_path = relative_display(path, root)
+
+    Mix.shell().info("")
+    Mix.shell().info("Ignored #{count} warning#{plural_suffix(count)} via #{relative_path}:")
+    Mix.shell().info("")
+
+    ignored
+    |> Enum.with_index(1)
+    |> Enum.each(fn {entry, index} ->
+      explain_entry(entry, index, root)
+    end)
+  end
+
+  defp explain_entry(entry, index, root) do
+    location = format_location(entry, root)
+    message = format_warning_message(entry)
+    matched_rules = Map.get(entry, :matched_rules, [])
+
+    Mix.shell().info("#{index}. #{location}")
+    Mix.shell().info("   #{message}")
+
+    if matched_rules != [] do
+      rule_descriptions =
+        Enum.map_join(matched_rules, "\n   ", fn {rule_idx, rule} ->
+          format_rule(rule, rule_idx)
+        end)
+
+      Mix.shell().info("   Matched by: #{rule_descriptions}")
+    else
+      Mix.shell().info("   Matched by: (no rules matched - this shouldn't happen)")
+    end
+
+    Mix.shell().info("")
+  end
+
+  defp format_location(entry, _root) do
+    case {entry.relative_path, entry.line} do
+      {relative, line} when not is_nil(relative) and not is_nil(line) ->
+        "#{relative}:#{line}"
+
+      {relative, _} when not is_nil(relative) ->
+        relative
+
+      {nil, line} when not is_nil(line) ->
+        "#{entry.path}:#{line}"
+
+      _ ->
+        entry.path || "(unknown location)"
+    end
+  end
+
+  defp format_warning_message(entry) do
+    # Try to extract a concise message from the text
+    case entry.text do
+      text when is_binary(text) ->
+        # Take first line or truncate if too long
+        text
+        |> String.split("\n")
+        |> List.first()
+        |> String.slice(0, 100)
+
+      _ ->
+        "#{entry.code}"
+    end
+  end
+
+  defp format_rule(rule, rule_idx) when is_binary(rule) do
+    # Truncate long strings
+    display = if String.length(rule) > 50, do: String.slice(rule, 0, 47) <> "...", else: rule
+    "rule ##{rule_idx + 1}: \"#{display}\""
+  end
+
+  defp format_rule(%Regex{} = regex, rule_idx) do
+    "rule ##{rule_idx + 1}: ~r/#{Regex.source(regex)}/#{format_regex_opts(regex)}"
+  end
+
+  defp format_rule(%{} = rule, rule_idx) do
+    parts =
+      Enum.map_join(rule, ", ", fn {key, value} ->
+        format_rule_part(key, value)
+      end)
+
+    "rule ##{rule_idx + 1}: %{#{parts}}"
+  end
+
+  defp format_rule(rule, rule_idx) do
+    "rule ##{rule_idx + 1}: #{inspect(rule)}"
+  end
+
+  defp format_rule_part(key, value) when is_binary(value) do
+    display = if String.length(value) > 30, do: String.slice(value, 0, 27) <> "...", else: value
+    "#{key}: \"#{display}\""
+  end
+
+  defp format_rule_part(key, value) when is_atom(value) do
+    "#{key}: :#{value}"
+  end
+
+  defp format_rule_part(key, value) when is_integer(value) do
+    "#{key}: #{value}"
+  end
+
+  defp format_rule_part(key, %Regex{} = regex) do
+    "#{key}: ~r/#{Regex.source(regex)}/#{format_regex_opts(regex)}"
+  end
+
+  defp format_rule_part(key, value) do
+    "#{key}: #{inspect(value)}"
+  end
+
+  defp format_regex_opts(%Regex{opts: opts}) do
+    Enum.map_join(opts, "", fn
+      :caseless -> "i"
+      :unicode -> "u"
+      :utf8 -> "u"
+      :multiline -> "m"
+      :dotall -> "s"
+      :extended -> "x"
+      opt -> Atom.to_string(opt)
+    end)
   end
 
   defp plural_suffix(1), do: ""

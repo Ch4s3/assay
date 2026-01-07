@@ -118,6 +118,30 @@ defmodule Mix.Tasks.AssayTest do
     end
   end
 
+  test "run forwards --explain-ignores flag" do
+    Process.put(:runner_stub_status, :ok)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      Assay.run(["--explain-ignores"])
+    end)
+
+    assert_received {:config_opts, opts}
+    assert Keyword.get(opts, :explain_ignores) == true
+    assert_received {:runner_called, _config, runner_opts}
+    assert Keyword.get(runner_opts, :explain_ignores) == true
+  end
+
+  test "run forwards --ignore-file flag" do
+    Process.put(:runner_stub_status, :ok)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      Assay.run(["--ignore-file", "custom_ignore.exs"])
+    end)
+
+    assert_received {:config_opts, opts}
+    assert Keyword.get(opts, :ignore_file) == "custom_ignore.exs"
+  end
+
   test "assay.daemon task boots the daemon" do
     Application.put_env(:assay, :daemon_module, DaemonStub)
 

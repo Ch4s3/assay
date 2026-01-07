@@ -589,6 +589,283 @@ defmodule Assay.FormatterTest do
     prefix <> text <> reset
   end
 
+  test "format handles relative_display with path that can't be relativized", %{tmp_dir: tmp_dir} do
+    # Test the rescue clause in relative_display
+    entries = [
+      %{
+        text: "warning",
+        match_text: "warning",
+        path: "/absolute/path/that/cant/be/relativized",
+        relative_path: nil,
+        line: 1,
+        column: nil,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :github, project_root: tmp_dir)
+    # Should fallback to absolute path if relativization fails
+    assert result =~ "file="
+  end
+
+  test "format handles format_snippet with file that can't be read", %{tmp_dir: tmp_dir} do
+    non_existent = Path.join(tmp_dir, "nonexistent.ex")
+
+    entries = [
+      %{
+        text: "warning",
+        match_text: "warning",
+        path: non_existent,
+        relative_path: "nonexistent.ex",
+        line: 1,
+        column: 5,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    # Should handle missing file gracefully
+    assert result =~ "warning"
+  end
+
+  test "format handles format_snippet with nil line", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "lib/foo.ex")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "defmodule Foo, do: nil")
+
+    entries = [
+      %{
+        text: "warning",
+        match_text: "warning",
+        path: path,
+        relative_path: "lib/foo.ex",
+        line: nil,
+        column: 5,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    # Should handle nil line gracefully
+    assert result =~ "warning"
+  end
+
+  test "format handles format_snippet with nil path", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "warning",
+        match_text: "warning",
+        path: nil,
+        relative_path: nil,
+        line: 1,
+        column: 5,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    # Should handle nil path gracefully
+    assert result =~ "warning"
+  end
+
+  test "format handles format_code_line with nil", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "warning",
+        match_text: "warning",
+        path: nil,
+        relative_path: nil,
+        line: nil,
+        column: nil,
+        code: nil
+      }
+    ]
+
+    [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    # Should handle nil code gracefully
+    assert result =~ "warning"
+  end
+
+  test "format handles run_erlex when erlex is not available", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: ~S"""
+        lib/foo.ex:5: Bad call
+                 (#{'__struct__' := 'Elixir.Sample'})
+                 will never return
+        """,
+        match_text: "lib/foo.ex:5",
+        path: nil,
+        relative_path: "lib/foo.ex",
+        line: 5,
+        column: nil,
+        code: :warn_failing_call
+      }
+    ]
+
+    # Should fallback to plain text if erlex fails
+    [result] = Formatter.format(entries, :elixir, project_root: tmp_dir)
+    assert result =~ "Bad call"
+  end
+
+  test "format handles strip_common_indent with empty lines", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: """
+        lib/foo.ex:5: Detail
+                 with
+                 indentation
+        """,
+        match_text: "lib/foo.ex:5",
+        path: nil,
+        relative_path: "lib/foo.ex",
+        line: 5,
+        column: nil,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    # Should handle indentation stripping
+    assert result =~ "Detail"
+  end
+
+  test "format handles leading_indent with tabs", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: """
+        lib/foo.ex:5: Detail
+        \t\twith tabs
+        """,
+        match_text: "lib/foo.ex:5",
+        path: nil,
+        relative_path: "lib/foo.ex",
+        line: 5,
+        column: nil,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    # Should handle tab indentation
+    assert result =~ "Detail"
+  end
+
+  test "format handles code_to_string with non-atom code", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "warning",
+        match_text: "warning",
+        path: nil,
+        relative_path: nil,
+        line: 1,
+        column: nil,
+        code: "warn_custom"
+      }
+    ]
+
+    [result] = Formatter.format(entries, :json, project_root: tmp_dir)
+    # Should handle string codes
+    assert result =~ "warn_custom"
+  end
+
+  test "format handles warning_severity with non-warn code", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "info",
+        match_text: "info",
+        path: nil,
+        relative_path: nil,
+        line: 1,
+        column: nil,
+        code: :info_message
+      }
+    ]
+
+    [result] = Formatter.format(entries, :json, project_root: tmp_dir)
+    # Should handle non-warn codes
+    assert result =~ "info"
+  end
+
+  test "format handles warning_severity with nil code", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "warning",
+        match_text: "warning",
+        path: nil,
+        relative_path: nil,
+        line: 1,
+        column: nil,
+        code: nil
+      }
+    ]
+
+    [result] = Formatter.format(entries, :json, project_root: tmp_dir)
+    # Should default to "warning" for nil codes
+    assert result =~ "warning"
+  end
+
+  test "format handles sarif_level with info severity", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "info",
+        match_text: "info",
+        path: nil,
+        relative_path: nil,
+        line: 1,
+        column: nil,
+        code: :info_message
+      }
+    ]
+
+    [result] = Formatter.format(entries, :sarif, project_root: tmp_dir)
+    # Should convert info to "note" in SARIF
+    assert result =~ "note"
+  end
+
+  test "format handles github_escape with special characters", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "warning with % and \r\n newlines",
+        match_text: "warning with % and \r\n newlines",
+        path: nil,
+        relative_path: "test.ex",
+        line: 1,
+        column: nil,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :github, project_root: tmp_dir)
+    # Should escape special characters
+    # % escaped
+    assert result =~ "%25"
+    # \r escaped
+    assert result =~ "%0D"
+    # \n escaped
+    assert result =~ "%0A"
+  end
+
+  test "format handles split_on_phrase when phrase not found", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: """
+        lib/foo.ex:5: Some other message
+        """,
+        match_text: "lib/foo.ex:5",
+        path: nil,
+        relative_path: "lib/foo.ex",
+        line: 5,
+        column: nil,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    # Should handle messages without "will never return"
+    assert result =~ "Some other message"
+  end
+
   defp strip_ansi(text) do
     Regex.replace(~r/\e\[[\d;]*m/, text, "")
   end

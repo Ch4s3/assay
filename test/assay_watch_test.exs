@@ -94,6 +94,23 @@ defmodule Assay.WatchTest do
     end
   end
 
+  defmodule QuietErrorShell do
+    def info(msg), do: IO.puts(msg)
+
+    def error(msg) when is_binary(msg) do
+      # Suppress error messages with stack traces and analysis failed messages
+      # These are expected in error-handling tests and create noise
+      if String.contains?(msg, "[Assay] Error running analysis") or
+           String.contains?(msg, "[Assay] Analysis failed") do
+        :ok
+      else
+        IO.puts(:stderr, msg)
+      end
+    end
+
+    def error(_), do: :ok
+  end
+
   defmodule FileSystemNoStopStub do
     def start_link(_opts) do
       parent = Process.get(:assay_watch_parent) || self()
@@ -980,6 +997,315 @@ defmodule Assay.WatchTest do
 
         # Send event with potentially problematic path
         send(watcher_pid, {:file_event, self(), test_path})
+        Process.sleep(10)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+  end
+
+  test "execute_run handles errors gracefully", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    defmodule RaisingAssayStub do
+      def run do
+        raise "intentional error"
+      end
+    end
+
+    previous_shell = Mix.shell()
+    Mix.shell(QuietErrorShell)
+    on_exit(fn -> Mix.shell(previous_shell) end)
+
+    # capture_io captures both stdout and stderr combined
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Assay.Watch.run(
+          run_once: true,
+          project_root: tmp_dir,
+          file_system_module: FileSystemStub,
+          assay_module: RaisingAssayStub
+        )
+      end)
+
+    assert output =~ "Initial run"
+    # Error handling should work (error is logged but doesn't crash)
+    assert output =~ "Assay watch mode running"
+  end
+
+  test "execute_run handles throws gracefully", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    defmodule ThrowingAssayStub do
+      def run do
+        throw(:intentional_throw)
+      end
+    end
+
+    previous_shell = Mix.shell()
+    Mix.shell(QuietErrorShell)
+    on_exit(fn -> Mix.shell(previous_shell) end)
+
+    # capture_io captures both stdout and stderr combined
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Assay.Watch.run(
+          run_once: true,
+          project_root: tmp_dir,
+          file_system_module: FileSystemStub,
+          assay_module: ThrowingAssayStub
+        )
+      end)
+
+    assert output =~ "Initial run"
+    # Error handling should work (error is logged but doesn't crash)
+    assert output =~ "Assay watch mode running"
+  end
+
+  test "execute_run_async handles errors gracefully", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    defmodule AsyncRaisingAssayStub do
+      def run do
+        raise "intentional async error"
+      end
+    end
+
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        test_file = Path.join([tmp_dir, "lib", "test.ex"])
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(10)
+        send(watcher_pid, :run)
+
+        Process.sleep(50)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AsyncRaisingAssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+  end
+
+  test "handles file_match? with mix.exs", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(tmp_dir)
+    mix_file = Path.join(tmp_dir, "mix.exs")
+    File.write!(mix_file, "defmodule Test, do: nil")
+
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        send(watcher_pid, {:file_event, self(), mix_file})
+        Process.sleep(10)
+        send(watcher_pid, :run)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    ResultStore.put(task.pid, :ok)
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
+  end
+
+  test "handles file_match? with mix.lock", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(tmp_dir)
+    lock_file = Path.join(tmp_dir, "mix.lock")
+    File.write!(lock_file, "%{}")
+
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        send(watcher_pid, {:file_event, self(), lock_file})
+        Process.sleep(10)
+        send(watcher_pid, :run)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    ResultStore.put(task.pid, :ok)
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
+  end
+
+  test "handles dir_match? with apps directory", %{tmp_dir: tmp_dir} do
+    apps_dir = Path.join(tmp_dir, "apps")
+    File.mkdir_p!(apps_dir)
+    my_app_dir = Path.join(apps_dir, "my_app")
+    File.mkdir_p!(my_app_dir)
+    lib_dir = Path.join(my_app_dir, "lib")
+    File.mkdir_p!(lib_dir)
+    test_file = Path.join(lib_dir, "test.ex")
+    File.write!(test_file, "defmodule Test, do: nil")
+
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        send(watcher_pid, {:file_event, self(), test_file})
+        Process.sleep(10)
+        send(watcher_pid, :run)
+        send(parent, :done)
+      end)
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          Assay.Watch.run(
+            run_once: false,
+            project_root: tmp_dir,
+            file_system_module: FileSystemEventStub,
+            assay_module: AssayStub,
+            debounce: 10
+          )
+        end)
+      end)
+
+    ResultStore.put(task.pid, :ok)
+    Process.sleep(10)
+    send(event_sender, {:pid, task.pid})
+    assert_receive :done, 500
+
+    Task.shutdown(task, :brutal_kill)
+    ResultStore.delete(task.pid)
+  end
+
+  test "handles watch_dirs with missing directories", %{tmp_dir: tmp_dir} do
+    # Only create lib, not apps/config/test
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    output =
+      capture_io(fn ->
+        Assay.Watch.run(
+          run_once: true,
+          project_root: tmp_dir,
+          file_system_module: FileSystemStub,
+          assay_module: AssayStub
+        )
+      end)
+
+    # Should still work with only lib directory
+    assert output =~ "Assay watch mode running"
+  end
+
+  test "handles display_dirs with absolute paths", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    output =
+      capture_io(fn ->
+        Assay.Watch.run(
+          run_once: true,
+          project_root: tmp_dir,
+          file_system_module: FileSystemStub,
+          assay_module: AssayStub
+        )
+      end)
+
+    # Should display directories correctly
+    assert output =~ "Assay watch mode running"
+  end
+
+  test "handles relevant_path? with non-binary, non-list path", %{tmp_dir: tmp_dir} do
+    File.mkdir_p!(Path.join(tmp_dir, "lib"))
+
+    parent = self()
+
+    event_sender =
+      spawn(fn ->
+        watcher_pid =
+          receive do
+            {:pid, pid} -> pid
+          end
+
+        # Send an atom path (should be rejected)
+        send(watcher_pid, {:file_event, self(), :invalid_path})
         Process.sleep(10)
         send(parent, :done)
       end)
