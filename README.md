@@ -46,6 +46,64 @@ assay: [
 ]
 ```
 
+## Configuration
+
+### Symbolic Selectors
+
+Assay supports symbolic selectors for `apps` and `warning_apps` to simplify configuration:
+
+#### `:project` or `"project"`
+Includes all project applications:
+- For umbrella projects: all apps from `Mix.Project.apps_paths()`
+- For single-app projects: the app from `Mix.Project.config()[:app]`
+
+#### `:project_plus_deps` or `"project+deps"`
+Includes project apps plus all dependencies and base OTP libraries:
+- Project apps (as defined by `:project`)
+- All dependency apps discovered from `_build/<env>/lib/*/ebin`
+- Base OTP libraries (`:logger`, `:kernel`, `:stdlib`, `:elixir`, `:erts`)
+
+#### `:current` or `"current"`
+Includes only the current Mix project's app:
+- Single app from `Mix.Project.config()[:app]`
+- Useful for umbrella projects when you want to analyze only one app
+
+#### `:current_plus_deps` or `"current+deps"`
+Includes the current app plus all dependencies and base OTP libraries:
+- Current app (as defined by `:current`)
+- All dependency apps
+- Base OTP libraries
+
+### Example Configuration
+
+```elixir
+# In mix.exs
+def project do
+  [
+    app: :my_app,
+    assay: [
+      dialyzer: [
+        # Analyze project apps + dependencies
+        apps: :project_plus_deps,
+        # Only show warnings for project apps
+        warning_apps: :project
+      ]
+    ]
+  ]
+end
+```
+
+You can also mix symbolic selectors with explicit app names:
+
+```elixir
+assay: [
+  dialyzer: [
+    apps: [:project_plus_deps, :custom_app],
+    warning_apps: [:project, :another_app]
+  ]
+]
+```
+
 ## Usage
 
 ### One-off analysis
