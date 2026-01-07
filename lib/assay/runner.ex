@@ -46,6 +46,10 @@ defmodule Assay.Runner do
       |> Enum.each(&IO.puts/1)
     end)
 
+    unless quiet? do
+      print_summary(result)
+    end
+
     result.status
   end
 
@@ -92,17 +96,32 @@ defmodule Assay.Runner do
             warnings: [Ignore.entry()],
             ignored: [Ignore.entry()],
             ignore_path: binary() | nil,
-            options: keyword()
+            options: keyword(),
+            timings: map()
           }
   def analyze(%Config{} = config, opts \\ []) do
+    timings = %{
+      compile_start: System.monotonic_time(),
+      compile_end: nil,
+      dialyzer_start: nil,
+      dialyzer_end: nil,
+      total_start: System.monotonic_time()
+    }
+
     Mix.Task.run("compile")
+    compile_end = System.monotonic_time()
+    timings = %{timings | compile_end: compile_end}
+
     File.mkdir_p!(config.cache_dir)
 
     options = dialyzer_options(config)
 
     maybe_print_config(opts, config, options)
 
+    dialyzer_start = System.monotonic_time()
     warnings = run_dialyzer(options)
+    dialyzer_end = System.monotonic_time()
+    timings = %{timings | dialyzer_start: dialyzer_start, dialyzer_end: dialyzer_end}
 
     entries = Ignore.decorate(warnings, config.project_root)
     explain? = Keyword.get(opts, :explain_ignores, false)
@@ -112,13 +131,20 @@ defmodule Assay.Runner do
 
     status = if visible == [], do: :ok, else: :warnings
 
+    total_end = System.monotonic_time()
+    timings = Map.put(timings, :total_end, total_end)
+
     %{
       status: status,
       warnings: visible,
       ignored: ignored,
       ignore_path: ignore_path,
-      options: options
+      options: options,
+      timings: timings
     }
+  rescue
+    error ->
+      reraise error, __STACKTRACE__
   end
 
   @doc false
@@ -154,6 +180,7 @@ defmodule Assay.Runner do
   defp charlist_paths(config, apps) do
     apps
     |> Enum.map(&format_app(&1, config))
+    |> Enum.reject(&is_nil/1)
     |> Enum.map(&String.to_charlist/1)
   end
 
@@ -165,9 +192,13 @@ defmodule Assay.Runner do
   end
 
   defp format_app(app, config) when is_atom(app) do
+    # Try :code.lib_dir first (works for loaded apps and OTP apps)
     case :code.lib_dir(app) do
-      {:error, _} -> project_app_path(app, config)
-      path -> Path.join(IO.chardata_to_string(path), "ebin")
+      {:error, _} ->
+        format_app_from_dependency_or_project(app, config)
+
+      path ->
+        format_app_from_lib_dir(path, app, config)
     end
   end
 
@@ -185,6 +216,43 @@ defmodule Assay.Runner do
     raise Mix.Error, "Invalid app identifier: #{inspect(other)}"
   end
 
+  defp format_app_from_dependency_or_project(app, config) do
+    case dependency_app_path(app, config) do
+      {:ok, path} -> path
+      :error -> project_app_path_or_skip(app, config)
+    end
+  end
+
+  defp format_app_from_lib_dir(path, app, config) do
+    ebin_path = Path.join(IO.chardata_to_string(path), "ebin")
+
+    if File.dir?(ebin_path) do
+      ebin_path
+    else
+      format_app_fallback(app, config)
+    end
+  end
+
+  defp format_app_fallback(app, config) do
+    case dependency_app_path(app, config) do
+      {:ok, dep_path} ->
+        dep_path
+
+      :error ->
+        format_app_from_build_path(app, config)
+    end
+  end
+
+  defp format_app_from_build_path(app, config) do
+    build_path = Path.join([config.build_lib_path, Atom.to_string(app), "ebin"])
+
+    if File.dir?(build_path) do
+      build_path
+    else
+      project_app_path_or_skip(app, config)
+    end
+  end
+
   defp color_enabled?(:elixir) do
     case System.get_env("MIX_ANSI_ENABLED") do
       "false" -> false
@@ -194,7 +262,59 @@ defmodule Assay.Runner do
 
   defp color_enabled?(_), do: false
 
-  defp project_app_path(app, %Config{build_lib_path: build_lib_path, project_root: root}) do
+  defp dependency_app_path(app, config) do
+    # First, try the build_lib_path (where Mix compiles dependencies)
+    build_ebin = Path.join([config.build_lib_path, Atom.to_string(app), "ebin"])
+
+    if File.dir?(build_ebin) do
+      {:ok, build_ebin}
+    else
+      dependency_app_path_from_mix_dep(app, config)
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp dependency_app_path_from_mix_dep(app, config) do
+    deps = Mix.Dep.cached()
+    dep = Enum.find(deps, &(&1.app == app))
+
+    if dep do
+      dependency_app_path_from_dep(dep, app, config)
+    else
+      :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp dependency_app_path_from_dep(dep, app, config) do
+    build_path = dep.opts[:build]
+    ebin_path = if build_path, do: Path.join([build_path, "ebin"]), else: nil
+
+    cond do
+      ebin_path && File.dir?(ebin_path) ->
+        {:ok, ebin_path}
+
+      dep.path && File.dir?(Path.join([dep.path, "ebin"])) ->
+        {:ok, Path.join([dep.path, "ebin"])}
+
+      true ->
+        dependency_app_path_standard_deps(app, config)
+    end
+  end
+
+  defp dependency_app_path_standard_deps(app, config) do
+    deps_path = Path.join([config.project_root, "deps", Atom.to_string(app), "ebin"])
+
+    if File.dir?(deps_path) do
+      {:ok, deps_path}
+    else
+      :error
+    end
+  end
+
+  defp project_app_path_or_skip(app, %Config{build_lib_path: build_lib_path, project_root: root}) do
     candidate =
       [build_lib_path, Atom.to_string(app), "ebin"]
       |> Path.join()
@@ -203,9 +323,28 @@ defmodule Assay.Runner do
     if File.dir?(candidate) do
       candidate
     else
-      raise Mix.Error,
-            "Assay could not locate the #{app} ebin under #{build_lib_path}; " <>
-              "ensure the project is compiled and listed in mix.exs"
+      # Check if it's a dependency - if so, skip it silently
+      deps =
+        try do
+          Mix.Dep.cached()
+          |> Enum.map(& &1.app)
+        rescue
+          _ -> []
+        end
+
+      if app in deps do
+        # Skip uncompiled dependencies - log a warning but don't fail
+        Mix.shell().info(
+          "[Assay] Skipping #{app} (ebin not found - dependency may not be compiled)"
+        )
+
+        nil
+      else
+        # For project apps, we should still raise an error
+        raise Mix.Error,
+              "Assay could not locate the #{app} ebin under #{build_lib_path}; " <>
+                "ensure the project is compiled and listed in mix.exs"
+      end
     end
   end
 
@@ -241,6 +380,126 @@ defmodule Assay.Runner do
     |> Enum.each(fn {entry, index} ->
       explain_entry(entry, index, root)
     end)
+  end
+
+  defp print_summary(result) do
+    skipped = length(result.ignored)
+    visible = length(result.warnings)
+    unnecessary_skips = calculate_unnecessary_skips(result.ignored)
+    timings = result.timings
+
+    compile_time = calculate_compile_time(timings)
+    dialyzer_time = calculate_dialyzer_time(timings)
+    total_time = calculate_total_time(timings)
+
+    print_summary_stats(visible, skipped, unnecessary_skips)
+    print_summary_timing(total_time, compile_time, dialyzer_time)
+  end
+
+  defp calculate_unnecessary_skips(ignored) do
+    Enum.count(ignored, fn entry ->
+      matched_rules = Map.get(entry, :matched_rules, [])
+
+      matched_rules == [] ||
+        Enum.all?(matched_rules, fn {_idx, rule} -> is_nil(rule) end)
+    end)
+  end
+
+  defp calculate_compile_time(timings) do
+    case {Map.get(timings, :compile_start), Map.get(timings, :compile_end)} do
+      {start, end_time} when is_integer(start) and is_integer(end_time) ->
+        System.convert_time_unit(end_time - start, :native, :millisecond)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp calculate_dialyzer_time(timings) do
+    case {Map.get(timings, :dialyzer_start), Map.get(timings, :dialyzer_end)} do
+      {start, end_time} when is_integer(start) and is_integer(end_time) ->
+        System.convert_time_unit(end_time - start, :native, :millisecond)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp calculate_total_time(timings) do
+    case {Map.get(timings, :total_start), Map.get(timings, :total_end)} do
+      {start, end_time} when is_integer(start) and is_integer(end_time) ->
+        System.convert_time_unit(end_time - start, :native, :millisecond)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp print_summary_stats(visible, skipped, unnecessary_skips) do
+    Mix.shell().info("")
+
+    skip_text =
+      if unnecessary_skips > 0, do: ", Unnecessary Skips: #{unnecessary_skips}", else: ""
+
+    Mix.shell().info("Total errors: #{visible}, Skipped: #{skipped}#{skip_text}")
+  end
+
+  defp print_summary_timing(total_time, compile_time, dialyzer_time) do
+    case total_time do
+      nil ->
+        :ok
+
+      _ ->
+        time_parts = build_time_parts(compile_time, dialyzer_time)
+
+        if not Enum.empty?(time_parts) do
+          Mix.shell().info(Enum.join(time_parts, ", "))
+        end
+
+        Mix.shell().info("Total: #{format_duration(total_time)}")
+    end
+  end
+
+  defp build_time_parts(compile_time, dialyzer_time) do
+    parts = []
+    parts = add_time_part(parts, compile_time, "Compile")
+    parts = add_time_part(parts, dialyzer_time, "Dialyzer")
+    parts
+  end
+
+  defp add_time_part(parts, time, label) when is_integer(time) do
+    parts ++ ["#{label}: #{format_duration(time)}"]
+  end
+
+  defp add_time_part(parts, _time, _label), do: parts
+
+  defp format_duration(milliseconds) do
+    cond do
+      milliseconds < 1000 ->
+        "#{milliseconds}ms"
+
+      milliseconds < 60_000 ->
+        seconds = div(milliseconds, 1000)
+        ms = rem(milliseconds, 1000)
+
+        if ms > 0 do
+          "#{seconds}.#{div(ms, 100)}s"
+        else
+          "#{seconds}s"
+        end
+
+      true ->
+        total_seconds = div(milliseconds, 1000)
+        minutes = div(total_seconds, 60)
+        seconds = rem(total_seconds, 60)
+        ms = rem(milliseconds, 1000)
+
+        if ms > 0 do
+          "#{minutes}m#{seconds}.#{div(ms, 100)}s"
+        else
+          "#{minutes}m#{seconds}s"
+        end
+    end
   end
 
   defp explain_entry(entry, index, root) do

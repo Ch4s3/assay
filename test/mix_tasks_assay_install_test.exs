@@ -41,7 +41,7 @@ defmodule Mix.Tasks.Assay.InstallTest do
 
     mix_contents = Map.fetch!(files, "mix.exs")
     assert mix_contents =~ "assay: [dialyzer: [apps: [:demo], warning_apps: [:demo]]]"
-    assert mix_contents =~ "{:assay, \"~> 0.2\", runtime: false, only: [:dev, :test]}"
+    assert mix_contents =~ "{:assay, \"~> 0.3\", runtime: false, only: [:dev, :test]}"
 
     assert Map.fetch!(files, ".gitignore") == "_build/assay\n"
 

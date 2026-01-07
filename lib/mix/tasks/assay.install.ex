@@ -1,30 +1,30 @@
-defmodule Mix.Tasks.Assay.Install do
-  @moduledoc """
-  Installs and configures Assay in the current project.
+if Code.ensure_loaded?(Igniter) do
+  defmodule Mix.Tasks.Assay.Install do
+    @moduledoc """
+    Installs and configures Assay in the current project.
 
-  This task uses Igniter to automatically configure Assay in your project. It:
-  * Adds Assay as a dev/test dependency
-  * Configures `apps` and `warning_apps` in `mix.exs`
-  * Creates a `.gitignore` entry for `_build/assay`
-  * Creates a `dialyzer_ignore.exs` file
-  * Optionally generates CI workflow files
+    This task uses Igniter to automatically configure Assay in your project. It:
+    * Adds Assay as a dev/test dependency
+    * Configures `apps` and `warning_apps` in `mix.exs`
+    * Creates a `.gitignore` entry for `_build/assay`
+    * Creates a `dialyzer_ignore.exs` file
+    * Optionally generates CI workflow files
 
-  ## Options
+    ## Options
 
-  * `--yes` - Skip all prompts and use defaults
-  * `--all-apps` / `-A` - Include all detected apps in analysis (not just project apps)
-  * `--ci=PROVIDER` - Generate CI workflow (github, gitlab, or none)
+    * `--yes` - Skip all prompts and use defaults
+    * `--all-apps` / `-A` - Include all detected apps in analysis (not just project apps)
+    * `--ci=PROVIDER` - Generate CI workflow (github, gitlab, or none)
 
-  ## Examples
+    ## Examples
 
-      mix assay.install
-      mix assay.install --yes --all-apps
-      mix assay.install --ci=github
-      mix assay.install --ci=gitlab
-      mix assay.install --ci=none
-  """
+        mix assay.install
+        mix assay.install --yes --all-apps
+        mix assay.install --ci=github
+        mix assay.install --ci=gitlab
+        mix assay.install --ci=none
+    """
 
-  if Code.ensure_loaded?(Igniter.Mix.Task) do
     use Igniter.Mix.Task
 
     alias Igniter.Code.Keyword, as: CodeKeyword
@@ -32,7 +32,7 @@ defmodule Mix.Tasks.Assay.Install do
     alias Rewrite.Source, as: Source
 
     @shortdoc "Install Assay and configure a project via Igniter"
-    @assay_version Mix.Project.config()[:version] || "0.2.0"
+    @assay_version Mix.Project.config()[:version] || "0.3.0"
 
     @impl Igniter.Mix.Task
     def supports_umbrella?, do: true
@@ -428,7 +428,16 @@ defmodule Mix.Tasks.Assay.Install do
       [major, minor | _] = String.split(version, ".")
       Enum.join([major, minor], ".")
     end
-  else
+  end
+else
+  defmodule Mix.Tasks.Assay.Install do
+    @moduledoc """
+    Install Assay via Igniter.
+
+    This module is only available when Igniter is not loaded. It provides
+    a fallback implementation that instructs users to install Igniter.
+    """
+
     use Mix.Task
 
     @shortdoc "Install Assay via Igniter"
@@ -438,7 +447,7 @@ defmodule Mix.Tasks.Assay.Install do
       Mix.raise("""
       mix assay.install requires the Igniter dependency.
 
-      Add {:igniter, "~> 0.7", optional: false} to your deps (or run `mix igniter.install assay`) \
+      Add {:igniter, "~> 0.6", optional: false} to your deps (or run `mix igniter.install assay`) \
       before invoking this task.
       """)
     end

@@ -70,24 +70,54 @@ defmodule Assay.DialyzerFlags do
   def parse(raw_flags, source, project_root) do
     entries = raw_flags |> List.wrap() |> Enum.flat_map(&expand_entry/1)
 
-    Enum.reduce(entries, %{options: [], init_plt: nil, output_plt: nil}, fn entry, acc ->
-      case entry do
-        {:option, key, value, original} ->
-          ensure_allowed_option!(key, original)
-          %{acc | options: acc.options ++ [{key, value}]}
+    {result, excluded_warnings} =
+      Enum.reduce(entries, {%{options: [], init_plt: nil, output_plt: nil}, []}, fn entry, acc ->
+        process_entry(entry, acc, source, project_root)
+      end)
 
-        {:flag, flag, arg, original} ->
-          ensure_allowed_flag!(flag, original)
+    apply_excluded_warnings(result, excluded_warnings)
+  end
 
-          {updates, override_map} =
-            interpret_flag(flag, arg, source, project_root, original)
+  defp process_entry({:option, key, value, original}, {acc, excluded}, _source, _root) do
+    ensure_allowed_option!(key, original)
+    new_acc = %{acc | options: acc.options ++ [{key, value}]}
+    {new_acc, excluded}
+  end
 
-          options = acc.options ++ updates
-          init_plt = Map.get(override_map, :init_plt, acc.init_plt)
-          output_plt = Map.get(override_map, :output_plt, acc.output_plt)
-          %{acc | options: options, init_plt: init_plt, output_plt: output_plt}
-      end
+  defp process_entry({:flag, flag, arg, original}, {acc, excluded}, source, root) do
+    ensure_allowed_flag!(flag, original)
+    {updates, override_map} = interpret_flag(flag, arg, source, root, original)
+    {new_excluded, new_updates} = split_excluded_warnings(updates)
+    excluded_atoms = Enum.map(new_excluded, fn {:exclude_warning, atom} -> atom end)
+
+    new_acc = update_acc_with_flag(acc, new_updates, override_map)
+    {new_acc, excluded ++ excluded_atoms}
+  end
+
+  defp split_excluded_warnings(updates) do
+    Enum.split_with(updates, fn
+      {:exclude_warning, _} -> true
+      _ -> false
     end)
+  end
+
+  defp update_acc_with_flag(acc, updates, override_map) do
+    options = acc.options ++ updates
+    init_plt = Map.get(override_map, :init_plt, acc.init_plt)
+    output_plt = Map.get(override_map, :output_plt, acc.output_plt)
+    %{acc | options: options, init_plt: init_plt, output_plt: output_plt}
+  end
+
+  defp apply_excluded_warnings(result, []) do
+    result
+  end
+
+  defp apply_excluded_warnings(result, excluded_warnings) do
+    {warnings_opts, other_opts} = Enum.split_with(result.options, fn {k, _} -> k == :warnings end)
+    current_warnings = Enum.flat_map(warnings_opts, fn {_, v} -> List.wrap(v) end)
+    filtered_warnings = Enum.reject(current_warnings, &(&1 in excluded_warnings))
+    new_warnings_opt = if filtered_warnings != [], do: [{:warnings, filtered_warnings}], else: []
+    %{result | options: other_opts ++ new_warnings_opt}
   end
 
   defp expand_entry(entry) when is_binary(entry) do
@@ -112,7 +142,17 @@ defmodule Assay.DialyzerFlags do
     end
   end
 
-  defp expand_entry(entry) when is_atom(entry), do: expand_entry(Atom.to_string(entry))
+  defp expand_entry(entry) when is_atom(entry) do
+    atom_str = Atom.to_string(entry)
+
+    if String.starts_with?(atom_str, "no_") do
+      # Convert :no_improper_lists to exclude :improper_lists from warnings
+      # We'll handle this specially in the parse function
+      [{:flag, "-W" <> atom_str, nil, entry}]
+    else
+      expand_entry(Atom.to_string(entry))
+    end
+  end
 
   defp expand_entry({flag, value}) when is_atom(flag) do
     [{:option, flag, value, {flag, value}}]

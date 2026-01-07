@@ -4,7 +4,7 @@ defmodule Assay.MixProject do
   def project do
     [
       app: :assay,
-      version: "0.2.0",
+      version: "0.3.0",
       description:
         "A tool for running Dialyzer in incremental mode on Elixir projects, with human and machine readable output formats.",
       elixir: "~> 1.18",

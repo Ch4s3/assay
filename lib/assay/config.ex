@@ -138,7 +138,16 @@ defmodule Assay.Config do
 
     raw_apps = list_override(opts, dialyzer_config, :apps)
     raw_warning_apps = list_override(opts, dialyzer_config, :warning_apps)
-    raw_config_flags = normalize_flag_list(Keyword.get(dialyzer_config, :dialyzer_flags, []))
+
+    # Support both :dialyzer_flags and :flags (for convenience)
+    dialyzer_flags_value = Keyword.get(dialyzer_config, :dialyzer_flags, [])
+    flags_value = Keyword.get(dialyzer_config, :flags, [])
+
+    # Normalize both separately, then combine
+    normalized_dialyzer_flags = normalize_flag_list(dialyzer_flags_value || [])
+    normalized_flags = normalize_flag_list(flags_value || [])
+
+    raw_config_flags = normalized_dialyzer_flags ++ normalized_flags
     cli_flag_list = normalize_flag_list(Keyword.get(opts, :dialyzer_flags, []))
 
     {apps_base, app_sources} = resolve_app_selectors(raw_apps, context)
@@ -146,9 +155,21 @@ defmodule Assay.Config do
 
     apps = include_optional_apps(apps_base)
 
+    # Support both :ignore_file and :ignore_warnings (for convenience)
     ignore_file =
-      Keyword.get(opts, :ignore_file) ||
-        Keyword.get(dialyzer_config, :ignore_file, "dialyzer_ignore.exs")
+      cond do
+        Keyword.has_key?(opts, :ignore_file) ->
+          Keyword.get(opts, :ignore_file)
+
+        Keyword.has_key?(dialyzer_config, :ignore_file) ->
+          Keyword.get(dialyzer_config, :ignore_file)
+
+        Keyword.has_key?(dialyzer_config, :ignore_warnings) ->
+          Keyword.get(dialyzer_config, :ignore_warnings)
+
+        true ->
+          "dialyzer_ignore.exs"
+      end
 
     warnings = list_option(dialyzer_config, :warnings, [])
     normalized_ignore = normalize_ignore_file(ignore_file, project_root)
@@ -199,6 +220,8 @@ defmodule Assay.Config do
 
     case value do
       list when is_list(list) -> list
+      # Allow single atom selectors
+      atom when is_atom(atom) -> [atom]
       other -> raise_invalid_value(key, other)
     end
   rescue
@@ -267,12 +290,19 @@ defmodule Assay.Config do
 
   defp build_context(project_config, opts) do
     project_apps = project_apps(project_config)
-    dependency_apps = Keyword.get(opts, :dependency_apps, default_dependency_apps(project_apps))
+
+    dependency_apps =
+      case Keyword.get(opts, :dependency_apps) do
+        nil -> default_dependency_apps(project_apps)
+        apps -> apps
+      end
+
+    dependency_apps_list = if dependency_apps, do: dependency_apps, else: []
 
     %{
       project_apps: project_apps,
       current_app: current_app(project_config, project_apps),
-      dependency_apps: dependency_apps,
+      dependency_apps: dependency_apps_list,
       base_apps: base_apps()
     }
   end
@@ -335,13 +365,16 @@ defmodule Assay.Config do
   end
 
   defp expand_project_selector(context) do
-    apps = context.project_apps
+    apps = Map.get(context, :project_apps, [])
     ensure_apps!(apps, :project)
     {:selector, :project, apps}
   end
 
   defp expand_project_plus_deps_selector(context) do
-    apps = Enum.uniq(context.project_apps ++ context.dependency_apps ++ context.base_apps)
+    project_apps = Map.get(context, :project_apps, [])
+    dependency_apps = Map.get(context, :dependency_apps, [])
+    base_apps = Map.get(context, :base_apps, [])
+    apps = Enum.uniq(project_apps ++ dependency_apps ++ base_apps)
     ensure_apps!(apps, :project_plus_deps)
     {:selector, :project_plus_deps, apps}
   end
@@ -359,7 +392,9 @@ defmodule Assay.Config do
         raise Mix.Error, "Unable to resolve current+deps selector (no :app in mix.exs)"
 
       app ->
-        apps = Enum.uniq([app | context.dependency_apps] ++ context.base_apps)
+        dependency_apps = Map.get(context, :dependency_apps, [])
+        base_apps = Map.get(context, :base_apps, [])
+        apps = Enum.uniq([app | dependency_apps] ++ base_apps)
         {:selector, :current_plus_deps, apps}
     end
   end

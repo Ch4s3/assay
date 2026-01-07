@@ -29,7 +29,7 @@ The easiest way to install Assay is using the Igniter-powered installer. First, 
 ```elixir
 def deps do
   [
-    {:assay, "~> 0.2", runtime: false, only: [:dev, :test]},
+    {:assay, "~> 0.3", runtime: false, only: [:dev, :test]},
     {:igniter, "~> 0.6", optional: false}
   ]
 end
@@ -60,7 +60,7 @@ If you prefer not to use Igniter, you can configure Assay manually:
 ```elixir
 def deps do
   [
-    {:assay, "~> 0.2", runtime: false, only: [:dev, :test]}
+    {:assay, "~> 0.3", runtime: false, only: [:dev, :test]}
   ]
 end
 ```
@@ -181,6 +181,25 @@ Add [`erlex`](https://hexdocs.pm/erlex) to your host project's deps (e.g.
 to render Dialyzer's Erlang detail blocks as Elixir-looking maps/structs (e.g.
 `%Ecto.Changeset{}`) while keeping plain output available when the default
 `text` format is used.
+
+## Troubleshooting
+
+### macOS: "Too many open files" error
+
+On macOS, Dialyzer's incremental mode opens many files in parallel, which can exceed
+the default open file limit. If you encounter errors related to file limits on larger
+projects, increase the limit before running Assay:
+
+```bash
+ulimit -n 4096  # or higher for very large projects
+mix assay
+```
+
+To make this permanent, add it to your shell configuration file (e.g., `~/.zshrc`):
+
+```bash
+ulimit -n 4096
+```
 
 ## Development
 
