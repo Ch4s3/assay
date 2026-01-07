@@ -22,8 +22,40 @@ for humans, CI, editors, and LLM-driven tools.
 
 ## Installation
 
-Add Assay as a dev/test dependency (local path while developing, Hex release
-once published):
+### Using Igniter (Recommended)
+
+The easiest way to install Assay is using the Igniter-powered installer. First, add both Assay and Igniter to your dependencies:
+
+```elixir
+def deps do
+  [
+    {:assay, "~> 0.1", runtime: false, only: [:dev, :test]},
+    {:igniter, "~> 0.6", optional: false}
+  ]
+end
+```
+
+**Important**: Igniter must be in your `mix.exs` dependencies (not optional) for the installer to work.
+
+Then run the installer:
+
+```bash
+mix deps.get
+mix assay.install --yes
+```
+
+The installer will:
+- Detect project and dependency apps
+- Configure `apps` and `warning_apps` in your `mix.exs`
+- Create a `.gitignore` entry for `_build/assay`
+- Create a `dialyzer_ignore.exs` file
+- Optionally generate CI workflow files (GitHub Actions or GitLab CI)
+
+### Manual Installation
+
+If you prefer not to use Igniter, you can configure Assay manually:
+
+1. Add Assay to your dependencies:
 
 ```elixir
 def deps do
@@ -33,50 +65,41 @@ def deps do
 end
 ```
 
-From the host project, run:
-
-```bash
-mix assay.install --yes
-```
-
-This detects project/dep apps and injects:
+2. Add configuration to your `mix.exs`:
 
 ```elixir
-assay: [
-  dialyzer: [
-    apps: [...],
-    warning_apps: [...]
+def project do
+  [
+    # ... other config ...
+    assay: [
+      dialyzer: [
+        apps: :project_plus_deps,  # or explicit list
+        warning_apps: :project      # or explicit list
+      ]
+    ]
   ]
-]
+end
 ```
+
+3. Create a `dialyzer_ignore.exs` file (optional):
+
+```elixir
+# dialyzer_ignore.exs
+[]
+```
+
+4. Add `_build/assay` to your `.gitignore` (optional but recommended).
 
 ## Configuration
 
 ### Symbolic Selectors
 
-Assay supports symbolic selectors for `apps` and `warning_apps` to simplify configuration:
+Assay supports symbolic selectors for `apps` and `warning_apps`:
 
-#### `:project` or `"project"`
-Includes all project applications:
-- For umbrella projects: all apps from `Mix.Project.apps_paths()`
-- For single-app projects: the app from `Mix.Project.config()[:app]`
-
-#### `:project_plus_deps` or `"project+deps"`
-Includes project apps plus all dependencies and base OTP libraries:
-- Project apps (as defined by `:project`)
-- All dependency apps discovered from `_build/<env>/lib/*/ebin`
-- Base OTP libraries (`:logger`, `:kernel`, `:stdlib`, `:elixir`, `:erts`)
-
-#### `:current` or `"current"`
-Includes only the current Mix project's app:
-- Single app from `Mix.Project.config()[:app]`
-- Useful for umbrella projects when you want to analyze only one app
-
-#### `:current_plus_deps` or `"current+deps"`
-Includes the current app plus all dependencies and base OTP libraries:
-- Current app (as defined by `:current`)
-- All dependency apps
-- Base OTP libraries
+- `:project` - All project applications (umbrella: all apps from `Mix.Project.apps_paths()`, single-app: `Mix.Project.config()[:app]`)
+- `:project_plus_deps` - Project apps + dependencies + base OTP libraries
+- `:current` - Current Mix project app only (useful for umbrella projects)
+- `:current_plus_deps` - Current app + dependencies + base OTP libraries
 
 ### Example Configuration
 

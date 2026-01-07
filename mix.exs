@@ -28,7 +28,7 @@ defmodule Assay.MixProject do
       {:file_system, "~> 1.1"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
-      {:igniter, "~> 0.6", optional: true},
+      {:igniter, "~> 0.6", only: :dev, optional: true},
       {:erlex, "~> 0.2", optional: true}
     ]
   end
