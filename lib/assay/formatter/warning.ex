@@ -240,6 +240,14 @@ defmodule Assay.Formatter.Warning do
 
   @doc """
   Convenience wrapper around `Assay.Formatter.Helpers.format_term_lines/1`.
+
+  ## Examples
+
+      iex> Assay.Formatter.Warning.format_term_lines("%{title => <<116,105,116,108,101>>}")
+      ["%{title => \\"title\\"}"]
+
+      iex> Assay.Formatter.Warning.format_term_lines("(atom())")
+      ["(atom())"]
   """
   def format_term_lines(value) do
     Helpers.format_term_lines(value)
@@ -247,6 +255,12 @@ defmodule Assay.Formatter.Warning do
 
   @doc """
   Convenience wrapper around `Assay.Formatter.Helpers.diff_lines/3`.
+
+  ## Examples
+
+      iex> result = Assay.Formatter.Warning.diff_lines(["(atom())"], ["(binary())"], color?: false)
+      iex> List.flatten(result)
+      ["-  (atom())", "+  (binary())"]
   """
   def diff_lines(expected_lines, actual_lines, opts) do
     Helpers.diff_lines(expected_lines, actual_lines, opts)

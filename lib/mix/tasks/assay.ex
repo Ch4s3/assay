@@ -1,5 +1,30 @@
 defmodule Mix.Tasks.Assay do
-  @moduledoc false
+  @moduledoc """
+  Run incremental Dialyzer using the host project's mix.exs config.
+
+  ## Options
+
+  * `--print-config` - Print the effective Dialyzer configuration
+  * `--format FORMAT` / `-f FORMAT` - Output format (text, elixir, github, json, sarif, llm)
+    * Can be specified multiple times to output multiple formats
+  * `--apps APP1,APP2` - Override apps list (comma-separated)
+  * `--warning-apps APP1,APP2` - Override warning_apps list (comma-separated)
+  * `--dialyzer-flag FLAG` - Pass additional Dialyzer flags
+
+  ## Exit Codes
+
+  * `0` - Clean (no warnings after ignores)
+  * `1` - Warnings detected
+  * `2` - Error occurred
+
+  ## Examples
+
+      mix assay
+      mix assay --print-config
+      mix assay --format github --format sarif
+      mix assay --apps my_app,my_dep
+      mix assay --dialyzer-flag="--statistics"
+  """
   use Mix.Task
 
   @shortdoc "Run incremental Dialyzer using the host project's mix.exs config"

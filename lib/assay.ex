@@ -11,6 +11,11 @@ defmodule Assay do
 
   Returns `:ok` when Dialyzer finishes cleanly, `:warnings` when incremental
   Dialyzer exits with code 1, and raises on any other exit.
+
+  When used via `mix assay`, exit codes are:
+  * `0` - Clean (no warnings after ignores)
+  * `1` - Warnings detected
+  * `2` - Error occurred
   """
   @spec run(keyword()) :: Runner.run_result()
   def run(opts \\ []) do

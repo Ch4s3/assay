@@ -22,7 +22,7 @@ defmodule Assay.Formatter.Helpers do
   ## Examples
 
       iex> Assay.Formatter.Helpers.format_term_lines("%{title => <<116,105,116,108,101>>}")
-      ["%{:title => \\"title\\"}"]
+      ["%{title => \\"title\\"}"]
   """
   def format_term_lines(nil), do: []
 
@@ -64,7 +64,8 @@ defmodule Assay.Formatter.Helpers do
 
   ## Examples
 
-      iex> Assay.Formatter.Helpers.diff_lines(["(atom())"], ["(binary())"], color?: false)
+      iex> result = Assay.Formatter.Helpers.diff_lines(["(atom())"], ["(binary())"], color?: false)
+      iex> List.flatten(result)
       ["-  (atom())", "+  (binary())"]
   """
   def diff_lines(expected_lines, actual_lines, opts) do

@@ -1,5 +1,33 @@
 defmodule Assay.Ignore do
-  @moduledoc false
+  @moduledoc """
+  Warning decoration and ignore rule filtering.
+
+  This module wraps raw Dialyzer warnings with metadata (file paths, line numbers,
+  warning codes) and applies ignore rules from `dialyzer_ignore.exs` files.
+
+  ## Ignore File Format
+
+  The ignore file (`dialyzer_ignore.exs` by default) should return a list of rules.
+  Each rule can be:
+
+  * A string - matches if the warning text contains the string
+  * A regex - matches if the warning text matches the regex
+  * A map with keys:
+    * `:file` or `:relative` - file path pattern (string or regex)
+    * `:message` - message text pattern (string or regex)
+    * `:line` - exact line number (integer)
+    * `:code` or `:tag` - warning code atom (e.g., `:warn_failing_call`)
+
+  ## Example
+
+      # dialyzer_ignore.exs
+      [
+        "Function will never return",  # Simple string match
+        ~r/unknown function/,          # Regex match
+        %{file: "lib/legacy.ex"},      # Match all warnings in a file
+        %{code: :warn_not_called, line: 42}  # Match specific warning
+      ]
+  """
 
   @type entry :: %{
           raw: term(),
@@ -15,6 +43,23 @@ defmodule Assay.Ignore do
   @doc """
   Wraps raw Dialyzer warnings with useful metadata for formatting and ignore
   matching.
+
+  ## Examples
+
+      # Decorate a single warning
+      warning = {:warn_not_called, {"/project/lib/foo.ex", {10, 5}}, {:MyApp, :unused, 1}}
+      entries = Assay.Ignore.decorate([warning], "/project")
+      [entry] = entries
+      entry.code
+      # => :warn_not_called
+      entry.path
+      # => "/project/lib/foo.ex"
+      entry.relative_path
+      # => "lib/foo.ex"
+      entry.line
+      # => 10
+      entry.column
+      # => 5
   """
   @spec decorate([term()], binary()) :: [entry()]
   def decorate(warnings, project_root) do
@@ -25,6 +70,34 @@ defmodule Assay.Ignore do
   Applies ignore rules (if any) and returns `{kept, ignored, file_path}` where
   the `file_path` is the ignore file that was loaded or `nil` when no file was
   used.
+
+  ## Examples
+
+      # Filter with string rule
+      entry = %{
+        code: :warn_not_called,
+        match_text: "Function MyApp.unused/1 is never called",
+        path: "/project/lib/foo.ex",
+        relative_path: "lib/foo.ex",
+        line: 10
+      }
+      rules = ["never called"]
+      # In real usage, rules come from dialyzer_ignore.exs
+      # This is a simplified example
+      {kept, ignored, _path} = Assay.Ignore.filter([entry], nil)
+      # kept is empty, ignored contains the entry (if rules matched)
+
+      # Filter with file pattern
+      entry = %{
+        code: :warn_failing_call,
+        match_text: "Call will fail",
+        path: "/project/lib/legacy.ex",
+        relative_path: "lib/legacy.ex",
+        line: 5
+      }
+      # With ignore file containing: [%{file: "lib/legacy.ex"}]
+      {kept, ignored, path} = Assay.Ignore.filter([entry], "dialyzer_ignore.exs")
+      # If ignore file exists and matches, entry is in ignored list
   """
   @spec filter([entry()], binary() | nil) :: {[entry()], [entry()], binary() | nil}
   def filter(entries, ignore_file) do

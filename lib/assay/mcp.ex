@@ -61,6 +61,45 @@ defmodule Assay.MCP do
   Handles a JSON-RPC request map and returns `{reply | nil, state, action}`.
 
   `action` is either `:continue` or `:stop`. Primarily used in tests.
+
+  ## Examples
+
+      # Initialize request
+      request = %{
+        "jsonrpc" => "2.0",
+        "id" => 1,
+        "method" => "initialize",
+        "params" => %{"clientInfo" => %{"name" => "test-client"}}
+      }
+      state = Assay.MCP.new()
+      {reply, new_state, action} = Assay.MCP.handle_rpc(request, state)
+      # reply contains protocol version and server info
+      # new_state.initialized? is true
+      # action is :continue
+
+      # List tools request
+      request = %{
+        "jsonrpc" => "2.0",
+        "id" => 2,
+        "method" => "tools/list"
+      }
+      {reply, new_state, action} = Assay.MCP.handle_rpc(request, initialized_state)
+      # reply contains list of available tools (assay.analyze)
+      # action is :continue
+
+      # Call tool request
+      request = %{
+        "jsonrpc" => "2.0",
+        "id" => 3,
+        "method" => "tools/call",
+        "params" => %{
+          "name" => "assay.analyze",
+          "arguments" => %{"formats" => ["json"]}
+        }
+      }
+      {reply, new_state, action} = Assay.MCP.handle_rpc(request, initialized_state)
+      # reply contains tool result with diagnostics
+      # action is :continue
   """
   @spec handle_rpc(map(), t()) :: {map() | nil, t(), :continue | :stop}
   def handle_rpc(%{"method" => method} = request, %__MODULE__{} = state) do

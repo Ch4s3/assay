@@ -1,5 +1,19 @@
 defmodule Assay.DialyzerFlags do
-  @moduledoc false
+  @moduledoc """
+  Parses and normalizes Dialyzer command-line flags.
+
+  This module converts raw flag inputs (from config or CLI) into the option tuples
+  that `:dialyzer.run/1` expects. It validates flags, prevents conflicting options,
+  and handles PLT path overrides.
+
+  ## Supported Flags
+
+  Common flags like `--statistics`, `--fullpath`, `--no_spec` are supported.
+  Flags that conflict with incremental mode (e.g., `--build_plt`, `--incremental`)
+  are disallowed.
+
+  See `parse/3` for details on flag parsing and validation.
+  """
 
   @type source :: :config | :cli
   @type parse_result :: %{

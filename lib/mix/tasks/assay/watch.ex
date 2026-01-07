@@ -1,5 +1,20 @@
 defmodule Mix.Tasks.Assay.Watch do
-  @moduledoc false
+  @moduledoc """
+  Watch project files and rerun incremental Dialyzer on change.
+
+  This task watches common project directories (`lib`, `apps`, `config`, `test`)
+  and automatically re-runs Dialyzer when files change. Changes are debounced
+  to avoid excessive runs, and in-flight analysis tasks are cancelled when new
+  changes are detected.
+
+  The watcher automatically ignores build artifacts (`_build/`, `deps/`, `.git/`).
+
+  Press Ctrl+C to stop watching.
+
+  ## Usage
+
+      mix assay.watch
+  """
   use Mix.Task
 
   @shortdoc "Watch project files and rerun incremental Dialyzer on change"

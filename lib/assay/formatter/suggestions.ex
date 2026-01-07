@@ -13,6 +13,40 @@ defmodule Assay.Formatter.Suggestions do
 
   alias Assay.Formatter.Warning
 
+  @doc """
+  Generates actionable suggestions for a Dialyzer warning.
+
+  Combines base suggestions, context-aware suggestions, type-aware suggestions,
+  reason-aware suggestions, and code-aware suggestions to provide comprehensive
+  guidance for fixing warnings.
+
+  ## Examples
+
+      # Get suggestions for a warning
+      entry = %{
+        code: :warn_not_called,
+        raw: {:warn_not_called, {"/path/to/file.ex", {10, 5}}, {:my_app, :unused_fun, 1}},
+        text: "Function MyApp.unused_fun/1 is never called",
+        path: "/path/to/file.ex",
+        line: 10
+      }
+      suggestions = Assay.Formatter.Suggestions.for_warning(:warn_not_called, entry)
+      # Returns a list of suggestion strings
+      Enum.any?(suggestions, &String.contains?(&1, "never called"))
+      # => true
+
+      # Suggestions include context when available
+      entry = %{
+        code: :warn_return_no_exit,
+        raw: {:warn_return_no_exit, {"/path/to/file.ex", {5, 3}}, "Function will never return"},
+        text: "Function MyApp.infinite_loop/0 has no local return",
+        path: "/path/to/file.ex",
+        line: 5
+      }
+      suggestions = Assay.Formatter.Suggestions.for_warning(:warn_return_no_exit, entry)
+      Enum.any?(suggestions, &String.contains?(&1, "will never return normally"))
+      # => true
+  """
   @spec for_warning(atom(), map()) :: [String.t()]
   def for_warning(code, entry) do
     suggestions =

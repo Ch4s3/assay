@@ -1,5 +1,24 @@
 defmodule Assay.Watch do
-  @moduledoc false
+  @moduledoc """
+  File watching and incremental Dialyzer re-execution.
+
+  This module watches project files and re-runs Dialyzer when changes are detected.
+  Used by `mix assay.watch` for continuous feedback during development.
+
+  ## Features
+
+  * Watches common project directories (`lib`, `apps`, `config`, `test`)
+  * Debounces file changes to avoid excessive runs
+  * Cancels in-flight analysis tasks when new changes are detected
+  * Automatically ignores build artifacts (`_build/`, `deps/`, `.git/`)
+
+  ## Options
+
+  * `:project_root` - Root directory to watch (defaults to current working directory)
+  * `:debounce` - Debounce delay in milliseconds (default: 300)
+  * `:latency` - File system watcher latency (default: 500)
+  * `:run_once` - Run once and exit instead of watching continuously
+  """
 
   @default_dirs ["lib", "apps", "config", "test"]
   @default_files ["mix.exs", "mix.lock"]

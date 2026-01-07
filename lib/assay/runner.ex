@@ -45,6 +45,40 @@ defmodule Assay.Runner do
 
   @doc """
   Runs incremental Dialyzer and returns structured diagnostics without printing.
+
+  This function is useful when you need programmatic access to Dialyzer results
+  without formatted output. It compiles the project, runs Dialyzer, decorates
+  warnings with metadata, and applies ignore rules.
+
+  ## Return Value
+
+  Returns a map with:
+  * `:status` - `:ok` if no warnings, `:warnings` if warnings found
+  * `:warnings` - List of visible (non-ignored) warning entries
+  * `:ignored` - List of ignored warning entries
+  * `:ignore_path` - Path to the ignore file used, or `nil`
+  * `:options` - Dialyzer options that were used
+
+  ## Examples
+
+      # Analyze with default options
+      config = Assay.Config.from_mix_project()
+      result = Assay.Runner.analyze(config)
+      result.status
+      # => :ok or :warnings
+      length(result.warnings)
+      # => number of visible warnings
+
+      # Analyze quietly (no output)
+      result = Assay.Runner.analyze(config, quiet: true)
+      # Returns same structure but without printing
+
+      # Analyze with specific formats (for structured output)
+      result = Assay.Runner.analyze(config, formats: [:json])
+      # Then format warnings yourself
+      json_warnings = Enum.map(result.warnings, fn warning ->
+        Assay.Formatter.format([warning], :json, project_root: config.project_root)
+      end)
   """
   @spec analyze(Config.t(), keyword()) ::
           %{

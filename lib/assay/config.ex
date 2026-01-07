@@ -5,6 +5,31 @@ defmodule Assay.Config do
   The first milestone keeps all user-facing knobs inside the host project's
   `mix.exs`. This module extracts that data and normalizes derived paths so the
   runner can work with a single struct.
+
+  ## Example Configuration
+
+  ```elixir
+  # In mix.exs
+  def project do
+    [
+      app: :my_app,
+      assay: [
+        dialyzer: [
+          apps: [:my_app, :my_dep],
+          warning_apps: [:my_app],
+          ignore_file: "dialyzer_ignore.exs",
+          dialyzer_flags: ["--statistics"]
+        ]
+      ]
+    ]
+  end
+  ```
+
+  The `apps` list determines which applications are included in the PLT analysis.
+  The `warning_apps` list determines which applications generate warnings (typically
+  just your project apps, not dependencies).
+
+  Use `mix assay.install` to automatically configure these settings.
   """
 
   alias Assay.DialyzerFlags
@@ -62,6 +87,33 @@ defmodule Assay.Config do
 
   Options allow tests or future callers to override derived paths (e.g. when the
   runner eventually supports daemons or alternate cache directories).
+
+  ## Options
+
+  * `:project_root` - Override project root (defaults to `File.cwd!()`)
+  * `:cache_dir` - Override cache directory
+  * `:plt_path` - Override PLT path
+  * `:build_lib_path` - Override build lib path
+  * `:dependency_apps` - Override dependency apps list
+
+  ## Examples
+
+      # Load from mix.exs
+      config = Assay.Config.from_mix_project()
+      config.apps
+      # => [:my_app, :my_dep, ...]
+      config.warning_apps
+      # => [:my_app]
+
+      # Override project root for testing
+      config = Assay.Config.from_mix_project(project_root: "/tmp/test_project")
+      config.project_root
+      # => "/tmp/test_project"
+
+      # Override cache directory
+      config = Assay.Config.from_mix_project(cache_dir: "/tmp/assay_cache")
+      config.cache_dir
+      # => "/tmp/assay_cache"
   """
   @spec from_mix_project(keyword()) :: t()
   def from_mix_project(opts \\ []) do

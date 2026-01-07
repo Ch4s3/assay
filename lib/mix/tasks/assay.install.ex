@@ -1,5 +1,28 @@
 defmodule Mix.Tasks.Assay.Install do
-  @moduledoc false
+  @moduledoc """
+  Installs and configures Assay in the current project.
+
+  This task uses Igniter to automatically configure Assay in your project. It:
+  * Adds Assay as a dev/test dependency
+  * Configures `apps` and `warning_apps` in `mix.exs`
+  * Creates a `.gitignore` entry for `_build/assay`
+  * Creates a `dialyzer_ignore.exs` file
+  * Optionally generates CI workflow files
+
+  ## Options
+
+  * `--yes` - Skip all prompts and use defaults
+  * `--all-apps` / `-A` - Include all detected apps in analysis (not just project apps)
+  * `--ci=PROVIDER` - Generate CI workflow (github, gitlab, or none)
+
+  ## Examples
+
+      mix assay.install
+      mix assay.install --yes --all-apps
+      mix assay.install --ci=github
+      mix assay.install --ci=gitlab
+      mix assay.install --ci=none
+  """
 
   if Code.ensure_loaded?(Igniter.Mix.Task) do
     use Igniter.Mix.Task

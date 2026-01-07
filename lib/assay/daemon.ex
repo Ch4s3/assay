@@ -69,6 +69,39 @@ defmodule Assay.Daemon do
   Handles a decoded JSON-RPC request map and returns `{reply | nil, state, action}`.
 
   Useful for tests; `action` is either `:continue` or `:stop`.
+
+  ## Examples
+
+      # Analyze request
+      request = %{
+        "jsonrpc" => "2.0",
+        "id" => 1,
+        "method" => "assay/analyze",
+        "params" => %{"formats" => ["json"]}
+      }
+      state = Assay.Daemon.new()
+      {reply, new_state, action} = Assay.Daemon.handle_rpc(request, state)
+      # reply contains JSON-RPC response with diagnostics
+      # action is :continue
+
+      # Get status request
+      request = %{
+        "jsonrpc" => "2.0",
+        "id" => 2,
+        "method" => "assay/getStatus"
+      }
+      {reply, new_state, action} = Assay.Daemon.handle_rpc(request, state)
+      # reply contains status information
+      # action is :continue
+
+      # Shutdown request
+      request = %{
+        "jsonrpc" => "2.0",
+        "id" => 3,
+        "method" => "assay/shutdown"
+      }
+      {reply, new_state, action} = Assay.Daemon.handle_rpc(request, state)
+      # action is :stop
   """
   @spec handle_rpc(map(), t()) :: {map() | nil, t(), :continue | :stop}
   def handle_rpc(%{"method" => method} = request, %__MODULE__{} = state) do

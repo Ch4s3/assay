@@ -1,5 +1,14 @@
 defmodule Assay.Formatter do
-  @moduledoc false
+  @moduledoc """
+  Formats Dialyzer warnings into various output formats.
+
+  This module converts decorated Dialyzer warning entries into formatted strings
+  suitable for different consumers: humans (text), CI systems (github, sarif),
+  editors (lsp), and LLM/agent tools (json, llm).
+
+  Supports multiple formats: `:text`, `:elixir`, `:github`, `:json`, `:sarif`, `:llm`.
+  See `format/3` for details on each format.
+  """
 
   alias Assay.Formatter.Warning
 
