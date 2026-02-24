@@ -142,6 +142,30 @@ defmodule Mix.Tasks.AssayTest do
     assert Keyword.get(opts, :ignore_file) == "custom_ignore.exs"
   end
 
+  test "run forwards --no-compile flag" do
+    Process.put(:runner_stub_status, :ok)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      Assay.run(["--no-compile"])
+    end)
+
+    assert_received {:config_opts, opts}
+    assert Keyword.get(opts, :no_compile) == true
+    assert_received {:runner_called, _config, runner_opts}
+    assert Keyword.get(runner_opts, :no_compile) == true
+  end
+
+  test "run defaults no_compile to false when flag is omitted" do
+    Process.put(:runner_stub_status, :ok)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      Assay.run([])
+    end)
+
+    assert_received {:runner_called, _config, runner_opts}
+    assert Keyword.get(runner_opts, :no_compile) == false
+  end
+
   test "assay.daemon task boots the daemon" do
     Application.put_env(:assay, :daemon_module, DaemonStub)
 
@@ -256,6 +280,24 @@ defmodule Mix.Tasks.AssayTest do
     end)
 
     assert_received :watch_started
+  end
+
+  test "assay.watch rejects --no-compile" do
+    assert_raise Mix.Error, ~r/not supported with mix assay\.watch/, fn ->
+      Watch.run(["--no-compile"])
+    end
+  end
+
+  test "assay.mcp rejects --no-compile" do
+    assert_raise Mix.Error, ~r/not supported with mix assay\.mcp/, fn ->
+      Mcp.run(["--no-compile"])
+    end
+  end
+
+  test "assay.daemon rejects --no-compile" do
+    assert_raise Mix.Error, ~r/not supported with mix assay\.daemon/, fn ->
+      Daemon.run(["--no-compile"])
+    end
   end
 
   defp capture_io(fun), do: ExUnit.CaptureIO.capture_io(fun)

@@ -25,9 +25,19 @@ defmodule Mix.Tasks.Assay.Daemon do
   @shortdoc "Run Assay as a JSON-RPC daemon"
 
   @impl true
-  def run(_argv) do
+  def run(argv) do
+    reject_no_compile!(argv)
     Mix.Task.run("app.start")
     daemon_module().serve()
+  end
+
+  defp reject_no_compile!(args) do
+    if "--no-compile" in args do
+      Mix.raise(
+        "--no-compile is not supported with mix assay.daemon " <>
+          "(the daemon must compile on each analysis)"
+      )
+    end
   end
 
   defp daemon_module do

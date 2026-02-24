@@ -57,8 +57,17 @@ defmodule Assay.Runner do
   Runs incremental Dialyzer and returns structured diagnostics without printing.
 
   This function is useful when you need programmatic access to Dialyzer results
-  without formatted output. It compiles the project, runs Dialyzer, decorates
-  warnings with metadata, and applies ignore rules.
+  without formatted output. It compiles the project (unless `:no_compile` is set),
+  runs Dialyzer, decorates warnings with metadata, and applies ignore rules.
+
+  ## Options
+
+  * `:no_compile` - When `true`, skip the `Mix.Task.run("compile")` step.
+    The project must already be compiled or Dialyzer will fail. Defaults to `false`.
+  * `:quiet` - Suppress informational output. Defaults to `false`.
+  * `:formats` - List of output format atoms. Defaults to `[:text]`.
+  * `:explain_ignores` - Show details about ignored warnings. Defaults to `false`.
+  * `:print_config` - Print the effective Dialyzer configuration. Defaults to `false`.
 
   ## Return Value
 
@@ -82,6 +91,9 @@ defmodule Assay.Runner do
       # Analyze quietly (no output)
       result = Assay.Runner.analyze(config, quiet: true)
       # Returns same structure but without printing
+
+      # Skip compilation (project must already be compiled)
+      result = Assay.Runner.analyze(config, no_compile: true)
 
       # Analyze with specific formats (for structured output)
       result = Assay.Runner.analyze(config, formats: [:json])
@@ -108,7 +120,10 @@ defmodule Assay.Runner do
       total_start: System.monotonic_time()
     }
 
-    Mix.Task.run("compile")
+    unless Keyword.get(opts, :no_compile, false) do
+      Mix.Task.run("compile")
+    end
+
     compile_end = System.monotonic_time()
     timings = %{timings | compile_end: compile_end}
 

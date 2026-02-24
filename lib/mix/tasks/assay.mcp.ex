@@ -25,9 +25,19 @@ defmodule Mix.Tasks.Assay.Mcp do
   @shortdoc "Run Assay as an MCP (Model Context Protocol) server"
 
   @impl true
-  def run(_argv) do
+  def run(argv) do
+    reject_no_compile!(argv)
     Mix.Task.run("app.start")
     mcp_module().serve()
+  end
+
+  defp reject_no_compile!(args) do
+    if "--no-compile" in args do
+      Mix.raise(
+        "--no-compile is not supported with mix assay.mcp " <>
+          "(the MCP server must compile on each analysis)"
+      )
+    end
   end
 
   defp mcp_module do

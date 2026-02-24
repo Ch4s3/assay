@@ -139,6 +139,7 @@ assay: [
 mix assay
 mix assay --print-config
 mix assay --format github --format sarif
+mix assay --no-compile          # skip compilation (project must already be compiled)
 ```
 
 Exit codes: `0` (clean), `1` (warnings), `2` (error).

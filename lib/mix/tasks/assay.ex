@@ -7,6 +7,7 @@ defmodule Mix.Tasks.Assay do
   * `--print-config` - Print the effective Dialyzer configuration
   * `--format FORMAT` / `-f FORMAT` - Output format (text, elixir, github, json, sarif, llm)
     * Can be specified multiple times to output multiple formats
+  * `--no-compile` - Skip compilation before running Dialyzer (the project must already be compiled)
   * `--apps APP1,APP2` - Override apps list (comma-separated)
   * `--warning-apps APP1,APP2` - Override warning_apps list (comma-separated)
   * `--dialyzer-flag FLAG` - Pass additional Dialyzer flags
@@ -55,6 +56,7 @@ defmodule Mix.Tasks.Assay do
         strict: [
           print_config: :boolean,
           format: :string,
+          no_compile: :boolean,
           apps: :string,
           warning_apps: :string,
           ignore_file: :string,
@@ -88,6 +90,7 @@ defmodule Mix.Tasks.Assay do
       []
       |> Keyword.put(:print_config, Keyword.get(opts, :print_config, false))
       |> Keyword.put(:formats, normalized_formats)
+      |> Keyword.put(:no_compile, Keyword.get(opts, :no_compile, false))
       |> Keyword.put(:explain_ignores, Keyword.get(opts, :explain_ignores, false))
       |> maybe_put(:apps, apps_override)
       |> maybe_put(:warning_apps, warning_override)

@@ -20,11 +20,21 @@ defmodule Mix.Tasks.Assay.Watch do
   @shortdoc "Watch project files and rerun incremental Dialyzer on change"
 
   @impl true
-  def run(_args) do
+  def run(args) do
+    reject_no_compile!(args)
     Mix.Task.run("app.start")
     # Ensure file_system application is started
     Application.ensure_all_started(:file_system)
     watch_module().run()
+  end
+
+  defp reject_no_compile!(args) do
+    if "--no-compile" in args do
+      Mix.raise(
+        "--no-compile is not supported with mix assay.watch " <>
+          "(watch mode must compile on each change)"
+      )
+    end
   end
 
   defp watch_module do
