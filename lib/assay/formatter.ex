@@ -315,7 +315,7 @@ defmodule Assay.Formatter do
     line_label = String.pad_leading(Integer.to_string(line), digits)
     sanitized = sanitize_line(content)
 
-    base_line = "│ #{line_label} │ #{sanitized}"
+    base_line = "│ #{line_label}  #{sanitized}"
 
     if is_error_line and column do
       # Add underline for the problematic segment
@@ -331,7 +331,7 @@ defmodule Assay.Formatter do
     gutter = String.duplicate(" ", digits)
     # Calculate underline length (try to match the problematic token)
     underline_length = calculate_underline_length(line, column)
-    "│ #{gutter} │ #{String.duplicate(" ", indent)}#{String.duplicate("~", underline_length)}"
+    "│ #{gutter}  #{String.duplicate(" ", indent)}#{String.duplicate("~", underline_length)}"
   end
 
   defp calculate_underline_length(line, column) do

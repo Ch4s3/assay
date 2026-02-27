@@ -32,11 +32,11 @@ defmodule Assay.FormatterTest do
     # New format includes multi-line context and suggestions
     assert result =~ "┌─ warning: lib/foo.ex:2:3"
     assert result =~ "│   (return no exit)"
-    assert result =~ "1 │ defmodule Foo do"
-    assert result =~ "2 │   def bar(arg), do: arg"
+    assert result =~ "│ 1  defmodule Foo do"
+    assert result =~ "│ 2    def bar(arg), do: arg"
     # Underline instead of caret
     assert result =~ "~~~"
-    assert result =~ "3 │ end"
+    assert result =~ "│ 3  end"
     assert result =~ "Foo.bar/1 has no local return"
     # Suggestions are now included
     assert result =~ "Suggestion:"
