@@ -14,8 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `'Elixir.String':t()`) in Success typing and Diff sections unless they
   explicitly added erlex to their own deps.
 
-- Code snippet line numbers now render inside the `│` border for visual
-  consistency (e.g. `│ 44 │ code` instead of `44 │ code`).
+- Code snippet line numbers now render inside the `│` border with a single
+  gutter (e.g. `│ 44  code` instead of `44 │ code`).
 
 ## [0.5.1] - 2026-02-26
 
