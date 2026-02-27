@@ -1,0 +1,63 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+This project adheres to [Semantic Versioning](https://semver.org/).
+
+## [0.5.0] - 2026-02-26
+
+### Improved
+
+- `--format github` now emits a rich elixir-style text body (code snippets,
+  context lines) after the `::warning` annotation line, making CI output
+  more readable without requiring a separate `--format elixir` pass.
+
+### Fixed
+
+- Umbrella project path resolution: Dialyzer reports paths relative to each
+  umbrella app (e.g. `lib/api/admin/chat_context.ex`), which failed to resolve
+  when expanded against the project root. Assay now searches `Mix.Project.apps_paths()`
+  to find the correct file under umbrella app directories.
+
+## [0.4.0] - 2026-02-24
+
+### Added
+
+- `--no-compile` flag for `mix assay` to skip compilation before running
+  Dialyzer. Useful in CI pipelines where the project is already compiled.
+  Follows the convention used by `mix test`, `mix credo`, and Dialyxir.
+- Clear error messages when `--no-compile` is used with long-running modes
+  (`mix assay.watch`, `mix assay.daemon`, `mix assay.mcp`) that require
+  recompilation on each analysis cycle.
+
+## [0.3.0] - 2026-01-07
+
+### Fixed
+
+- Several bug and documentation fixes.
+
+## [0.2.0] - 2026-01-07
+
+### Added
+
+- JSON-RPC daemon (`mix assay.daemon`) for programmatic access.
+- MCP server (`mix assay.mcp`) for editor/LSP/agent integrations.
+- Igniter-powered installer (`mix assay.install`).
+- Watch mode (`mix assay.watch`) with debounced re-analysis.
+- Multiple output formats: `text`, `elixir`, `github`, `sarif`, `json`, `llm`.
+- `dialyzer_ignore.exs` filtering.
+- Umbrella project support.
+- CI workflow generation (GitHub Actions, GitLab CI).
+
+## [0.1.0] - 2026-01-06
+
+### Added
+
+- Initial release with incremental Dialyzer support.
+- Basic CLI via `mix assay`.
+
+[0.5.0]: https://github.com/Ch4s3/assay/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/Ch4s3/assay/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/Ch4s3/assay/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Ch4s3/assay/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/Ch4s3/assay/releases/tag/v0.1.0

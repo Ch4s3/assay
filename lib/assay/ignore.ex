@@ -231,11 +231,40 @@ defmodule Assay.Ignore do
 
   defp absolute_path(path, root) do
     case Path.type(path) do
-      :absolute -> path
-      _ -> Path.expand(path, root)
+      :absolute ->
+        path
+
+      _ ->
+        expanded = Path.expand(path, root)
+
+        if File.exists?(expanded) do
+          expanded
+        else
+          resolve_umbrella_path(path, root, expanded)
+        end
     end
   rescue
     _ -> path
+  end
+
+  defp resolve_umbrella_path(path, root, fallback) do
+    case Mix.Project.apps_paths() do
+      paths when is_map(paths) ->
+        paths
+        |> Map.values()
+        |> Enum.find_value(&existing_umbrella_file(path, root, &1))
+        |> Kernel.||(fallback)
+
+      _ ->
+        fallback
+    end
+  rescue
+    _ -> fallback
+  end
+
+  defp existing_umbrella_file(path, root, app_path) do
+    candidate = Path.expand(path, Path.join(root, app_path))
+    if File.exists?(candidate), do: candidate
   end
 
   defp relative_path(nil, _root), do: nil

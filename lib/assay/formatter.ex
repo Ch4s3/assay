@@ -19,7 +19,8 @@ defmodule Assay.Formatter do
 
   - `:text` - Human-readable text format with code snippets and location information
   - `:elixir` - Same as `:text` but with pretty-printed Erlang terms (requires `erlex` dependency)
-  - `:github` - GitHub Actions workflow annotations (`::warning file=...::message`)
+  - `:github` - GitHub Actions workflow annotations (`::warning file=...::message`) followed by
+    a rich elixir-style text body with code snippets and context
   - `:json` - JSON objects for machine/RPC consumers (one JSON object per warning)
   - `:sarif` - SARIF 2.1.0 log (entire log emitted as a single JSON string)
   - `:llm` - JSON format optimized for LLM consumption (single-line messages, structured data)
@@ -36,10 +37,11 @@ defmodule Assay.Formatter do
       ...>   path: "lib/bar.ex",
       ...>   relative_path: "lib/bar.ex",
       ...>   line: 5,
+      ...>   column: nil,
       ...>   code: :warn_not_called
       ...> }
       iex> [result] = Assay.Formatter.format([entry], :github, project_root: "/project")
-      iex> result
+      iex> result |> String.split("\\n") |> hd()
       "::warning file=lib/bar.ex,line=5::Function will never return"
 
       iex> entry = %{
@@ -74,13 +76,16 @@ defmodule Assay.Formatter do
   end
 
   def format(entries, :github, opts) do
+    opts = Keyword.put(opts, :pretty_erlang, true)
     project_root = Keyword.fetch!(opts, :project_root)
 
     Enum.map(entries, fn entry ->
       path = entry.relative_path || relative_display(entry.path, project_root) || "unknown"
       line = entry.line || 0
       message = entry |> entry_message() |> github_escape()
-      "::warning file=#{path},line=#{line}::#{message}"
+      annotation = "::warning file=#{path},line=#{line}::#{message}"
+      body = format_text_entry(entry, project_root, opts)
+      annotation <> "\n" <> body
     end)
   end
 

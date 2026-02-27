@@ -4,7 +4,7 @@ defmodule Assay.MixProject do
   def project do
     [
       app: :assay,
-      version: "0.3.0",
+      version: "0.5.0",
       description:
         "A tool for running Dialyzer in incremental mode on Elixir projects, with human and machine readable output formats.",
       elixir: "~> 1.18",
@@ -69,7 +69,7 @@ defmodule Assay.MixProject do
 
   defp docs do
     [
-      extras: ["README.md"],
+      extras: ["README.md", "CHANGELOG.md"],
       main: "readme",
       source_url: "https://github.com/Ch4s3/assay"
     ]

@@ -93,6 +93,44 @@ defmodule Assay.IgnoreTest do
       assert entry.relative_path == "lib/abs.ex"
     end
 
+    test "falls back to expanded path when not in umbrella project" do
+      # When Mix.Project.apps_paths() returns nil (non-umbrella project),
+      # absolute_path should fall back to Path.expand(path, root)
+      project_root = Path.expand("tmp/ignore_project_non_umbrella")
+      warning_text = "#{project_root}/lib/api/sample.ex:5: warning"
+
+      Application.put_env(:assay, :dialyzer_warning_text, warning_text)
+
+      [entry] =
+        Ignore.decorate(
+          [{:warn_return_no_exit, {"lib/api/sample.ex", {5, 1}}, "details"}],
+          project_root
+        )
+
+      # Path is expanded against project root (file doesn't exist, but path resolves)
+      assert entry.path == Path.join(project_root, "lib/api/sample.ex")
+      assert entry.relative_path == "lib/api/sample.ex"
+    end
+
+    test "resolves path when file exists at expanded location" do
+      project_root = Path.expand("tmp/ignore_project_exists")
+      file_path = Path.join(project_root, "lib/sample.ex")
+      File.mkdir_p!(Path.dirname(file_path))
+      File.write!(file_path, "defmodule Sample, do: nil")
+
+      warning_text = "#{file_path}:1: warning"
+      Application.put_env(:assay, :dialyzer_warning_text, warning_text)
+
+      [entry] =
+        Ignore.decorate(
+          [{:warn_return_no_exit, {"lib/sample.ex", {1, 1}}, "details"}],
+          project_root
+        )
+
+      assert entry.path == file_path
+      assert entry.relative_path == "lib/sample.ex"
+    end
+
     test "normalizes atom file names and unknown codes" do
       project_root = Path.expand("tmp/ignore_project_atom")
       warning_text = "#{project_root}/sample:10: warning"

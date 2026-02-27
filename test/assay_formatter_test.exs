@@ -473,20 +473,29 @@ defmodule Assay.FormatterTest do
     assert balanced_delimiters?(actual_line)
   end
 
-  test "github formatter emits workflow command" do
+  test "github formatter emits workflow command with rich body" do
     entries = [
       %{
         text: "warning text\n",
         match_text: "warning text",
         path: "/project/lib/foo.ex",
         relative_path: "lib/foo.ex",
-        line: 10
+        line: 10,
+        column: nil,
+        code: :warn_failing_call
       }
     ]
 
-    result = Formatter.format(entries, :github, project_root: "/project")
+    [result] = Formatter.format(entries, :github, project_root: "/project")
 
-    assert result == ["::warning file=lib/foo.ex,line=10::warning text"]
+    # First line is the annotation
+    [annotation | body_lines] = String.split(result, "\n")
+    assert annotation == "::warning file=lib/foo.ex,line=10::warning text"
+
+    # Body includes rich elixir-style output
+    body = Enum.join(body_lines, "\n")
+    assert body =~ "┌─ warning: lib/foo.ex:10"
+    assert body =~ "warning text"
   end
 
   test "json formatter emits structured payloads", %{tmp_dir: tmp_dir} do
