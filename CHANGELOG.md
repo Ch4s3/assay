@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] - 2026-02-27
+
+### Fixed
+
+- Made `erlex` a required (non-optional) dependency so that Erlang-to-Elixir
+  type conversion works in consuming projects. Previously erlex was optional,
+  meaning projects using assay would see raw Erlang notation (e.g.
+  `'Elixir.String':t()`) in Success typing and Diff sections unless they
+  explicitly added erlex to their own deps.
+
+- Code snippet line numbers now render inside the `│` border for visual
+  consistency (e.g. `│ 44 │ code` instead of `44 │ code`).
+
 ## [0.5.1] - 2026-02-26
 
 ### Fixed
@@ -64,6 +77,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - Initial release with incremental Dialyzer support.
 - Basic CLI via `mix assay`.
 
+[0.5.2]: https://github.com/Ch4s3/assay/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/Ch4s3/assay/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Ch4s3/assay/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Ch4s3/assay/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Ch4s3/assay/compare/v0.2.0...v0.3.0

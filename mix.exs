@@ -4,7 +4,7 @@ defmodule Assay.MixProject do
   def project do
     [
       app: :assay,
-      version: "0.5.1",
+      version: "0.5.2",
       description:
         "A tool for running Dialyzer in incremental mode on Elixir projects, with human and machine readable output formats.",
       elixir: "~> 1.18",
@@ -30,7 +30,7 @@ defmodule Assay.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:igniter, "~> 0.6", only: [:dev, :test], optional: true},
-      {:erlex, "~> 0.2", optional: true}
+      {:erlex, "~> 0.2"}
     ]
   end
 
