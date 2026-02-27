@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-02-26
+
+### Fixed
+
+- GitHub annotations now display the rich formatted body (code snippets, diffs,
+  suggestions) instead of the raw Dialyzer message. The formatted body is encoded
+  in the `::warning` message parameter so GitHub renders it in the annotation popup.
+
 ## [0.5.0] - 2026-02-26
 
 ### Improved

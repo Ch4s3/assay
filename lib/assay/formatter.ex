@@ -40,9 +40,9 @@ defmodule Assay.Formatter do
       ...>   column: nil,
       ...>   code: :warn_not_called
       ...> }
-      iex> [result] = Assay.Formatter.format([entry], :github, project_root: "/project")
-      iex> result |> String.split("\\n") |> hd()
-      "::warning file=lib/bar.ex,line=5::Function will never return"
+       iex> [result] = Assay.Formatter.format([entry], :github, project_root: "/project")
+       iex> result |> String.split("\\n") |> hd() |> String.starts_with?("::warning file=lib/bar.ex,line=5::")
+       true
 
       iex> entry = %{
       ...>   text: "Type mismatch",
@@ -82,9 +82,8 @@ defmodule Assay.Formatter do
     Enum.map(entries, fn entry ->
       path = entry.relative_path || relative_display(entry.path, project_root) || "unknown"
       line = entry.line || 0
-      message = entry |> entry_message() |> github_escape()
-      annotation = "::warning file=#{path},line=#{line}::#{message}"
       body = format_text_entry(entry, project_root, opts)
+      annotation = "::warning file=#{path},line=#{line}::#{github_escape(body)}"
       annotation <> "\n" <> body
     end)
   end

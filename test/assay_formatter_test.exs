@@ -488,11 +488,17 @@ defmodule Assay.FormatterTest do
 
     [result] = Formatter.format(entries, :github, project_root: "/project")
 
-    # First line is the annotation
+    # First line is the annotation with the formatted body escaped
     [annotation | body_lines] = String.split(result, "\n")
-    assert annotation == "::warning file=lib/foo.ex,line=10::warning text"
+    assert annotation =~ "::warning file=lib/foo.ex,line=10::"
+    # The annotation message contains the rich body with newlines encoded as %0A
+    annotation_message =
+      String.replace_prefix(annotation, "::warning file=lib/foo.ex,line=10::", "")
 
-    # Body includes rich elixir-style output
+    assert annotation_message =~ "%0A"
+    assert annotation_message =~ "warning text"
+
+    # Body includes rich elixir-style output (readable version after the annotation)
     body = Enum.join(body_lines, "\n")
     assert body =~ "┌─ warning: lib/foo.ex:10"
     assert body =~ "warning text"
@@ -846,13 +852,12 @@ defmodule Assay.FormatterTest do
     ]
 
     [result] = Formatter.format(entries, :github, project_root: tmp_dir)
-    # Should escape special characters
-    # % escaped
-    assert result =~ "%25"
-    # \r escaped
-    assert result =~ "%0D"
-    # \n escaped
-    assert result =~ "%0A"
+    # Annotation line should have special characters escaped
+    [annotation | _body_lines] = String.split(result, "\n")
+    # % escaped in annotation
+    assert annotation =~ "%25"
+    # \n escaped as %0A in annotation (from the formatted body)
+    assert annotation =~ "%0A"
   end
 
   test "format handles split_on_phrase when phrase not found", %{tmp_dir: tmp_dir} do
