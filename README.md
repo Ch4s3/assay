@@ -17,7 +17,7 @@ for humans, CI, editors, and LLM-driven tools.
 * `dialyzer_ignore.exs` filtering with per-warning decorations
 * Igniter-powered installer (`mix assay.install`) that configures apps/
   warning_apps in the host project
-* JSON-RPC daemon (`mix assay.daemon`) plus an MCP server (`mix assay.mcp`)
+* JSON-RPC daemon (`mix assay.daemon`) plus an experimental MCP server (`mix assay.mcp`)
   for editor/LSP/agent integrations
 
 ## Installation
@@ -164,7 +164,7 @@ Speaks JSON-RPC over stdio. Supported methods:
 * `assay/getStatus`, `assay/getConfig`, `assay/setConfig`
 * `assay/shutdown`
 
-### MCP server
+### MCP server (experimental)
 
 ```bash
 mix assay.mcp
@@ -173,7 +173,8 @@ mix assay.mcp
 Implements the Model Context Protocol (`initialize`, `tools/list`, `tools/call`)
 and exposes a single tool, `assay.analyze`, which returns the same structured
 diagnostics as the daemon. Requests/responses use the standard MCP/LSP framing:
-each JSON payload must be prefixed with `Content-Length: <bytes>\r\n\r\n`.
+each JSON payload must be prefixed with `Content-Length: <bytes>\r\n\r\n`. 
+*Note that this is an experimental feature and may not be working well at the moment*
 
 ### Pretty-printing Dialyzer terms
 
