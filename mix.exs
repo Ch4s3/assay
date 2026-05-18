@@ -30,7 +30,8 @@ defmodule Assay.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:igniter, "~> 0.6", only: [:dev, :test], optional: true},
-      {:erlex, "~> 0.2"}
+      {:erlex, "~> 0.2"},
+      {:marcli, "~> 0.3", optional: true}
     ]
   end
 

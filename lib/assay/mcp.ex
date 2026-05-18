@@ -360,6 +360,7 @@ defmodule Assay.MCP do
     if trimmed == "" do
       {:ok, headers}
     else
+      # credo:disable-for-lines:9 Credo.Check.Refactor.Nesting
       with {:ok, updated} <- parse_header_line(trimmed, headers),
            next <- IO.binread(:stdio, :line) do
         case next do

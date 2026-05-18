@@ -880,6 +880,154 @@ defmodule Assay.FormatterTest do
     assert result =~ "Some other message"
   end
 
+  test "markdown formatter renders heading, snippet, both ignore entries", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "lib/foo.ex")
+    File.mkdir_p!(Path.dirname(path))
+
+    File.write!(path, """
+    defmodule Foo do
+      def bar(arg), do: arg
+    end
+    """)
+
+    entries = [
+      %{
+        text: "lib/foo.ex:2: Function Foo.bar/1 has no local return",
+        match_text: "#{path}:2: Function Foo.bar/1 has no local return",
+        path: path,
+        relative_path: "lib/foo.ex",
+        line: 2,
+        column: 3,
+        code: :warn_return_no_exit
+      }
+    ]
+
+    [result] = Formatter.format(entries, :markdown, project_root: tmp_dir)
+
+    assert result =~ "## return no exit: `lib/foo.ex:2:3`"
+    assert result =~ "```elixir"
+    assert result =~ "2 | "
+    assert result =~ "Foo.bar/1 has no local return"
+    # dialyzer_ignore.exs entry
+    assert result =~ "dialyzer_ignore.exs"
+    assert result =~ ~s(%{file: "lib/foo.ex", line: 2, code: :warn_return_no_exit})
+    # @dialyzer attribute (extracts bar/1 from match_text)
+    assert result =~ "@dialyzer"
+    assert result =~ "{:no_return, bar: 1}"
+  end
+
+  test "markdown formatter falls back when file context is missing", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "warning text",
+        match_text: "warning text",
+        path: nil,
+        relative_path: nil,
+        line: nil,
+        column: nil,
+        code: nil
+      }
+    ]
+
+    [result] = Formatter.format(entries, :markdown, project_root: tmp_dir)
+
+    assert result =~ "## warning: `nofile`"
+    assert result =~ "> warning text"
+    # @dialyzer attribute with placeholder when function can't be extracted
+    assert result =~ "function_name: arity"
+  end
+
+  test "markdown detail sections use h3 headers with diff block only for diff", %{
+    tmp_dir: tmp_dir
+  } do
+    entries = [
+      %{
+        text: """
+        lib/bar.ex:10: The call Sample.foo/1
+        Call: Sample.foo
+        Expected (success typing):
+          (atom())
+        Actual (call arguments):
+          (binary())
+        Diff (expected -, actual +):
+            -  (atom())
+            +  (binary())
+        Suggestion:
+          Types differ.
+        """,
+        match_text: "lib/bar.ex:10: Function Sample.foo/1",
+        path: nil,
+        relative_path: "lib/bar.ex",
+        line: 10,
+        column: nil,
+        code: :warn_failing_call
+      }
+    ]
+
+    [result] = Formatter.format(entries, :markdown, project_root: tmp_dir)
+
+    # Section headers become h3
+    assert result =~ "### Call:"
+    assert result =~ "### Expected (success typing):"
+    assert result =~ "### Actual (call arguments):"
+    assert result =~ "### Diff (expected -, actual +):"
+    assert result =~ "### Suggestion:"
+    # Only the diff section is fenced
+    assert result =~ "```diff\n-  (atom())\n+  (binary())\n```"
+    # Suggestion content is NOT inside a diff block
+    assert result =~ "Types differ."
+    refute result =~ "```diff\nTypes differ"
+  end
+
+  test "markdown formatter inserts --- between multiple entries", %{tmp_dir: tmp_dir} do
+    entry1 = %{
+      text: "warning one",
+      match_text: "warning one",
+      path: nil,
+      relative_path: "lib/a.ex",
+      line: 1,
+      column: nil,
+      code: :warn_not_called
+    }
+
+    entry2 = %{
+      text: "warning two",
+      match_text: "warning two",
+      path: nil,
+      relative_path: "lib/b.ex",
+      line: 2,
+      column: nil,
+      code: :warn_failing_call
+    }
+
+    results = Formatter.format([entry1, entry2], :markdown, project_root: tmp_dir)
+    assert [_, "---", _] = results
+  end
+
+  test "marcli formatter renders ANSI output when marcli is available", %{tmp_dir: tmp_dir} do
+    entries = [
+      %{
+        text: "warning text",
+        match_text: "warning text",
+        path: nil,
+        relative_path: "lib/foo.ex",
+        line: 5,
+        column: nil,
+        code: :warn_not_called
+      }
+    ]
+
+    if Code.ensure_loaded?(Marcli) do
+      [result] = Formatter.format(entries, :marcli, project_root: tmp_dir)
+      # Marcli produces ANSI escape sequences
+      assert is_binary(result)
+      clean = strip_ansi(result)
+      assert clean =~ "not called"
+      assert clean =~ "lib/foo.ex"
+      assert clean =~ "dialyzer_ignore.exs"
+    end
+  end
+
   defp strip_ansi(text) do
     Regex.replace(~r/\e\[[\d;]*m/, text, "")
   end

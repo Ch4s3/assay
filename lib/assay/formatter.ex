@@ -6,7 +6,8 @@ defmodule Assay.Formatter do
   suitable for different consumers: humans (text), CI systems (github, sarif),
   editors (lsp), and LLM/agent tools (json, llm).
 
-  Supports multiple formats: `:text`, `:elixir`, `:github`, `:json`, `:sarif`, `:llm`.
+  Supports multiple formats: `:text`, `:elixir`, `:github`, `:json`, `:sarif`, `:llm`,
+  `:markdown`, and `:marcli`.
   See `format/3` for details on each format.
   """
 
@@ -24,6 +25,9 @@ defmodule Assay.Formatter do
   - `:json` - JSON objects for machine/RPC consumers (one JSON object per warning)
   - `:sarif` - SARIF 2.1.0 log (entire log emitted as a single JSON string)
   - `:llm` - JSON format optimized for LLM consumption (single-line messages, structured data)
+  - `:markdown` - CommonMark Markdown with code snippets and copy-pasteable `dialyzer_ignore.exs` entries
+  - `:marcli` - Same as `:markdown` but rendered as ANSI-styled terminal output via
+    `Marcli` (requires the optional `marcli` dependency)
 
   ## Options
 
@@ -139,6 +143,30 @@ defmodule Assay.Formatter do
     }
 
     [JSON.encode!(sarif)]
+  end
+
+  def format(entries, :markdown, opts) do
+    project_root = Keyword.fetch!(opts, :project_root)
+
+    entries
+    |> Enum.map(fn entry -> format_markdown_entry(entry, project_root, opts) end)
+    |> Enum.intersperse("---")
+  end
+
+  def format(entries, :marcli, opts) do
+    if Code.ensure_loaded?(Marcli) do
+      entries
+      |> format(:markdown, opts)
+      # credo:disable-for-next-line
+      |> Enum.map(&apply(Marcli, :render, [&1]))
+    else
+      Mix.raise("""
+      The :marcli format requires the `marcli` dependency.
+      Add it to your mix.exs:
+
+          {:marcli, "~> 0.3"}
+      """)
+    end
   end
 
   @doc false
@@ -530,6 +558,249 @@ defmodule Assay.Formatter do
   rescue
     _ -> path
   end
+
+  # -- Markdown format helpers ------------------------------------------------
+
+  defp format_markdown_entry(entry, project_root, opts) do
+    relative = entry.relative_path || relative_display(entry.path, project_root) || "nofile"
+    location = format_location(relative, entry.line, entry.column)
+    code_label = format_code_label(entry.code)
+
+    warning =
+      Warning.render(entry,
+        relative_path: relative,
+        color?: false
+      )
+
+    sections = [
+      "## #{code_label}: `#{location}`",
+      format_markdown_snippet(entry.path, entry.line, entry.column),
+      format_markdown_details(warning, opts),
+      "> #{warning.headline}",
+      format_ignore_entry(entry)
+    ]
+
+    sections
+    |> List.flatten()
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n\n")
+  end
+
+  defp format_code_label(nil), do: "warning"
+
+  defp format_code_label(code) do
+    code
+    |> Atom.to_string()
+    |> String.trim_leading("warn_")
+    |> String.replace("_", " ")
+  end
+
+  defp format_markdown_snippet(nil, _line, _column), do: nil
+  defp format_markdown_snippet(_path, nil, _column), do: nil
+
+  defp format_markdown_snippet(path, line, _column) do
+    with true <- File.regular?(path),
+         {:ok, contents} <- File.read(path),
+         lines_list when is_list(lines_list) <- fetch_context_lines(contents, line, 2) do
+      snippet =
+        lines_list
+        |> Enum.map_join("\n", fn %{line: ln, content: content} ->
+          "#{ln} | #{sanitize_line(content)}"
+        end)
+
+      "```elixir\n#{snippet}\n```"
+    else
+      _ -> nil
+    end
+  end
+
+  # Known section headers that appear at indent level 0 in detail lines.
+  @md_section_headers [
+    "Call:",
+    "Expected (success typing):",
+    "Actual (call arguments):",
+    "Diff (expected -, actual +):",
+    "Suggestion:",
+    "Reason:"
+  ]
+
+  defp format_markdown_details(warning, opts) do
+    details = warning.details
+
+    pretty_erlang? = Keyword.get(opts, :pretty_erlang, false)
+
+    rendered =
+      details
+      |> drop_leading_blank()
+      |> maybe_pretty_erlang(pretty_erlang?)
+      |> strip_common_indent()
+
+    case Enum.reject(rendered, &(&1 == "")) do
+      [] -> nil
+      _ -> rendered |> chunk_detail_sections() |> render_markdown_sections()
+    end
+  end
+
+  defp chunk_detail_sections(lines) do
+    {acc, current} =
+      Enum.reduce(lines, {[], nil}, fn line, {acc, current} ->
+        case detect_section_header(line) do
+          {:section, header, inline} ->
+            acc = flush_section(acc, current)
+            body = if inline != nil and inline != "", do: [inline], else: []
+            {acc, {header, body}}
+
+          :not_a_section ->
+            # credo:disable-for-lines:5 Credo.Check.Refactor.Nesting
+            case current do
+              nil -> {acc, {nil, [line]}}
+              {header, body} -> {acc, {header, body ++ [line]}}
+            end
+        end
+      end)
+
+    flush_section(acc, current)
+  end
+
+  defp flush_section(acc, nil), do: acc
+  defp flush_section(acc, section), do: acc ++ [section]
+
+  defp detect_section_header(line) do
+    trimmed = String.trim_leading(line)
+
+    # Only match lines with no leading whitespace (top-level headers)
+    if trimmed != line do
+      :not_a_section
+    else
+      # credo:disable-for-lines:7 Credo.Check.Refactor.Nesting
+      Enum.find_value(@md_section_headers, :not_a_section, fn prefix ->
+        if String.starts_with?(line, prefix) do
+          inline = line |> String.trim_leading(prefix) |> String.trim()
+          header = String.trim_trailing(prefix, ":")
+          {:section, header, inline}
+        end
+      end)
+    end
+  end
+
+  defp render_markdown_sections(sections) do
+    sections
+    |> Enum.map(fn
+      {"Diff (expected -, actual +)", body} ->
+        diff =
+          body
+          |> Enum.reject(&(&1 == ""))
+          |> strip_common_indent()
+          |> Enum.join("\n")
+
+        "### Diff (expected -, actual +):\n\n```diff\n#{diff}\n```"
+
+      {nil, body} ->
+        body |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
+
+      {header, body} ->
+        text =
+          body
+          |> strip_common_indent()
+          |> Enum.join("\n")
+          |> String.trim()
+
+        case text do
+          "" -> "### #{header}:"
+          _ -> "### #{header}:\n\n#{text}"
+        end
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  # -- Ignore entry helpers ---------------------------------------------------
+
+  defp format_ignore_entry(entry) do
+    file_ignore = format_file_ignore(entry)
+    dialyzer_attr = format_dialyzer_attribute(entry)
+
+    [file_ignore, dialyzer_attr]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, "\n\n")
+    end
+  end
+
+  defp format_file_ignore(entry) do
+    parts =
+      []
+      |> maybe_add_ignore_part(:file, entry.relative_path)
+      |> maybe_add_ignore_part(:line, entry.line)
+      |> maybe_add_ignore_part(:code, entry.code)
+
+    case parts do
+      [] ->
+        nil
+
+      _ ->
+        inner = Enum.join(parts, ", ")
+        "Ignore with (`dialyzer_ignore.exs`):\n\n```elixir\n%{#{inner}}\n```"
+    end
+  end
+
+  defp format_dialyzer_attribute(entry) do
+    option = dialyzer_option(entry.code)
+
+    {fun_str, arity_str} =
+      case extract_function_info(entry) do
+        {fun, arity} -> {fun, Integer.to_string(arity)}
+        nil -> {"function_name", "arity"}
+      end
+
+    "Inline ignore (`@dialyzer`):\n\n```elixir\n@dialyzer {#{inspect(option)}, #{fun_str}: #{arity_str}}\n```"
+  end
+
+  defp extract_function_info(entry) do
+    text = entry.match_text || entry.text || ""
+
+    # "Function Module.fun/arity" (Elixir-style dialyzer output)
+    # "'Elixir.Module':fun/arity" (Erlang-style dialyzer output)
+    {~r/Function\s+[\w.]+\.(\w+)\/(\d+)/, ~r/'[^']+':(\w+)\/(\d+)/}
+    |> Tuple.to_list()
+    |> Enum.find_value(&match_fun_arity(text, &1))
+  end
+
+  defp match_fun_arity(text, regex) do
+    case Regex.run(regex, text) do
+      [_, fun, arity] -> {fun, String.to_integer(arity)}
+      _ -> nil
+    end
+  end
+
+  @dialyzer_options %{
+    warn_return_no_exit: :no_return,
+    warn_failing_call: :no_fail_call,
+    warn_not_called: :no_unused,
+    warn_matching: :no_match,
+    warn_contract_types: :no_contracts,
+    warn_contract_not_equal: :no_contracts,
+    warn_contract_subtype: :no_contracts,
+    warn_contract_supertype: :no_contracts
+  }
+
+  defp dialyzer_option(code), do: Map.get(@dialyzer_options, code, :nowarn_function)
+
+  defp maybe_add_ignore_part(acc, _key, nil), do: acc
+
+  defp maybe_add_ignore_part(acc, :file, value) when is_binary(value),
+    do: acc ++ ["file: \"#{value}\""]
+
+  defp maybe_add_ignore_part(acc, :line, value) when is_integer(value),
+    do: acc ++ ["line: #{value}"]
+
+  defp maybe_add_ignore_part(acc, :code, value) when is_atom(value),
+    do: acc ++ ["code: :#{value}"]
+
+  defp maybe_add_ignore_part(acc, _key, _value), do: acc
+
+  # -- GitHub format helpers --------------------------------------------------
 
   defp github_escape(message) do
     message
