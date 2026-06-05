@@ -900,11 +900,13 @@ defmodule Assay.FormatterTest do
       }
     ]
 
-    # Previously crashed with FunctionClauseError in String.trim_trailing/2 because
-    # fetch_context_lines built a backwards range (start_line=8 > end_line=1 for a
-    # 1-line file), causing Enum.at to return nil for out-of-bounds indices.
+    # Previously crashed with FunctionClauseError because fetch_context_lines
+    # built a backwards range when target_line > file length.
+    # Now clamps to the last valid line and shows available context.
     assert [result] = Formatter.format(entries, :text, project_root: tmp_dir)
     assert result =~ "lib/short.ex:10"
+    # File content should still appear as context (clamped to last line)
+    assert result =~ "defmodule Short"
   end
 
   test "formatter does not crash when warning line is beyond end of file (github format)",
@@ -927,6 +929,8 @@ defmodule Assay.FormatterTest do
 
     assert [result] = Formatter.format(entries, :github, project_root: tmp_dir)
     assert result =~ "::warning file=lib/short.ex,line=10::"
+    # File content should still appear as context (clamped to last line)
+    assert result =~ "defmodule Short"
   end
 
   defp strip_ansi(text) do
