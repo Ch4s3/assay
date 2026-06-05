@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 - Fixed syntax error (missing `end`) in the marcli formatter test that caused
   CI to fail with `TokenMissingError`.
+- Updated install test version assertion from `~> 0.5` to `~> 0.6` to match
+  the version the installer now writes into new projects.
 
 ## [0.6.0] - 2026-06-05
 
