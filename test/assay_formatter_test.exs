@@ -1026,6 +1026,57 @@ defmodule Assay.FormatterTest do
       assert clean =~ "lib/foo.ex"
       assert clean =~ "dialyzer_ignore.exs"
     end
+  test "formatter does not crash when warning line is beyond end of file (text format)",
+       %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "lib/short.ex")
+    File.mkdir_p!(Path.dirname(path))
+    # Single-line file — dialyzer can reference a stale/macro-generated line number
+    # beyond the actual file length, e.g. after the source changes or in macro expansions.
+    File.write!(path, "defmodule Short, do: nil")
+
+    entries = [
+      %{
+        text: "lib/short.ex:10: Function Short.foo/0 has no local return",
+        match_text: "#{path}:10: Function Short.foo/0 has no local return",
+        path: path,
+        relative_path: "lib/short.ex",
+        line: 10,
+        column: nil,
+        code: :warn_return_no_exit
+      }
+    ]
+
+    # Previously crashed with FunctionClauseError because fetch_context_lines
+    # built a backwards range when target_line > file length.
+    # Now clamps to the last valid line and shows available context.
+    assert [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    assert result =~ "lib/short.ex:10"
+    # File content should still appear as context (clamped to last line)
+    assert result =~ "defmodule Short"
+  end
+
+  test "formatter does not crash when warning line is beyond end of file (github format)",
+       %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "lib/short.ex")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "defmodule Short, do: nil")
+
+    entries = [
+      %{
+        text: "lib/short.ex:10: Function Short.foo/0 has no local return",
+        match_text: "#{path}:10: Function Short.foo/0 has no local return",
+        path: path,
+        relative_path: "lib/short.ex",
+        line: 10,
+        column: nil,
+        code: :warn_return_no_exit
+      }
+    ]
+
+    assert [result] = Formatter.format(entries, :github, project_root: tmp_dir)
+    assert result =~ "::warning file=lib/short.ex,line=10::"
+    # File content should still appear as context (clamped to last line)
+    assert result =~ "defmodule Short"
   end
 
   defp strip_ansi(text) do

@@ -316,8 +316,12 @@ defmodule Assay.Formatter do
 
   defp fetch_context_lines(contents, target_line, context_lines) do
     all_lines = String.split(contents, "\n", trim: false)
-    start_line = max(1, target_line - context_lines)
-    end_line = min(length(all_lines), target_line + context_lines)
+    # Clamp to the actual file length so a warning line beyond EOF
+    # (e.g. from macro-generated code or a stale PLT) still shows
+    # the nearest available context rather than an empty snippet.
+    clamped_line = min(target_line, length(all_lines))
+    start_line = max(1, clamped_line - context_lines)
+    end_line = min(length(all_lines), clamped_line + context_lines)
 
     start_line..end_line
     |> Enum.map(fn line_num ->
