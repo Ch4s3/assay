@@ -36,7 +36,10 @@ defmodule Assay.Formatter.Warning do
   """
 
   defmodule Result do
-    @moduledoc false
+    @moduledoc """
+    Struct returned by `Assay.Formatter.Warning.render/2` representing a formatted
+    Dialyzer warning with a headline and optional detail lines.
+    """
     defstruct [:headline, details: []]
 
     @type t :: %__MODULE__{

@@ -370,7 +370,6 @@ defmodule Assay.Ignore do
   defp extract_code(code) when is_atom(code), do: code
   defp extract_code(_), do: :unknown
 
-  defp maybe_to_string(nil), do: nil
   defp maybe_to_string(value) when is_binary(value), do: value
   defp maybe_to_string(value) when is_list(value), do: List.to_string(value)
   defp maybe_to_string(value) when is_atom(value), do: Atom.to_string(value)

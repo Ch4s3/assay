@@ -5,7 +5,7 @@ defmodule Mix.Tasks.Assay do
   ## Options
 
   * `--print-config` - Print the effective Dialyzer configuration
-  * `--format FORMAT` / `-f FORMAT` - Output format (text, elixir, github, json, sarif, llm)
+  * `--format FORMAT` / `-f FORMAT` - Output format (text, elixir, github, json, sarif, llm, markdown, marcli)
     * Can be specified multiple times to output multiple formats
   * `--no-compile` - Skip compilation before running Dialyzer (the project must already be compiled)
   * `--apps APP1,APP2` - Override apps list (comma-separated)
@@ -119,12 +119,13 @@ defmodule Mix.Tasks.Assay do
     Mix.raise("Unknown format: #{inspect(value)}")
   end
 
-  defp validate_format(format) when format in [:text, :elixir, :github, :llm, :sarif, :json],
-    do: format
+  defp validate_format(format)
+       when format in [:text, :elixir, :github, :llm, :sarif, :json, :markdown, :marcli],
+       do: format
 
   defp validate_format(format) do
     Mix.raise(
-      "Unsupported format #{inspect(format)}. Supported formats: text, elixir, github, llm, sarif, json."
+      "Unsupported format #{inspect(format)}. Supported formats: text, elixir, github, llm, sarif, json, markdown, marcli."
     )
   end
 
