@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-06-05
+
+### Added
+
+- `--format markdown` output format renders Dialyzer warnings as a Markdown
+  document, suitable for pasting into issues, PRs, or documentation.
+- `--format marcli` output format renders warnings with rich terminal styling
+  via the optional [`marcli`](https://hex.pm/packages/marcli) dependency
+  (add `{:marcli, "~> 0.3"}` to your project deps to enable).
+
+### Fixed
+
+- Formatter no longer crashes when Dialyzer reports a warning at a line number
+  beyond the end of the source file (can occur with macro-generated code,
+  protocol implementations, or stale PLT data). Affected both `--format elixir`
+  and `--format github` modes.
+
+### Dependencies
+
+- Bumped `erlex` 0.2.8 → 0.2.9 (removes compile-time shift/reduce warnings).
+- Bumped `ex_doc` 0.39.3 → 0.40.3.
+- Bumped `igniter` 0.7.0 → 0.8.1.
+- Bumped `credo` 1.7.18 → 1.7.19 (Elixir 1.20 compatibility).
+
 ## [0.5.2] - 2026-02-27
 
 ### Fixed
@@ -77,6 +101,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - Initial release with incremental Dialyzer support.
 - Basic CLI via `mix assay`.
 
+[0.6.0]: https://github.com/Ch4s3/assay/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/Ch4s3/assay/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Ch4s3/assay/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Ch4s3/assay/compare/v0.4.0...v0.5.0
