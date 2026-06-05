@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-06-05
+
+### Fixed
+
+- Fixed syntax error (missing `end`) in the marcli formatter test that caused
+  CI to fail with `TokenMissingError`.
+
 ## [0.6.0] - 2026-06-05
 
 ### Added
@@ -101,6 +108,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - Initial release with incremental Dialyzer support.
 - Basic CLI via `mix assay`.
 
+[0.6.1]: https://github.com/Ch4s3/assay/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Ch4s3/assay/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/Ch4s3/assay/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Ch4s3/assay/compare/v0.5.0...v0.5.1
