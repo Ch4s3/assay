@@ -880,6 +880,55 @@ defmodule Assay.FormatterTest do
     assert result =~ "Some other message"
   end
 
+  test "formatter does not crash when warning line is beyond end of file (text format)",
+       %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "lib/short.ex")
+    File.mkdir_p!(Path.dirname(path))
+    # Single-line file — dialyzer can reference a stale/macro-generated line number
+    # beyond the actual file length, e.g. after the source changes or in macro expansions.
+    File.write!(path, "defmodule Short, do: nil")
+
+    entries = [
+      %{
+        text: "lib/short.ex:10: Function Short.foo/0 has no local return",
+        match_text: "#{path}:10: Function Short.foo/0 has no local return",
+        path: path,
+        relative_path: "lib/short.ex",
+        line: 10,
+        column: nil,
+        code: :warn_return_no_exit
+      }
+    ]
+
+    # Previously crashed with FunctionClauseError in String.trim_trailing/2 because
+    # fetch_context_lines built a backwards range (start_line=8 > end_line=1 for a
+    # 1-line file), causing Enum.at to return nil for out-of-bounds indices.
+    assert [result] = Formatter.format(entries, :text, project_root: tmp_dir)
+    assert result =~ "lib/short.ex:10"
+  end
+
+  test "formatter does not crash when warning line is beyond end of file (github format)",
+       %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "lib/short.ex")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "defmodule Short, do: nil")
+
+    entries = [
+      %{
+        text: "lib/short.ex:10: Function Short.foo/0 has no local return",
+        match_text: "#{path}:10: Function Short.foo/0 has no local return",
+        path: path,
+        relative_path: "lib/short.ex",
+        line: 10,
+        column: nil,
+        code: :warn_return_no_exit
+      }
+    ]
+
+    assert [result] = Formatter.format(entries, :github, project_root: tmp_dir)
+    assert result =~ "::warning file=lib/short.ex,line=10::"
+  end
+
   defp strip_ansi(text) do
     Regex.replace(~r/\e\[[\d;]*m/, text, "")
   end

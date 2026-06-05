@@ -291,7 +291,7 @@ defmodule Assay.Formatter do
     start_line = max(1, target_line - context_lines)
     end_line = min(length(all_lines), target_line + context_lines)
 
-    start_line..end_line
+    start_line..end_line//1
     |> Enum.map(fn line_num ->
       %{
         line: line_num,
