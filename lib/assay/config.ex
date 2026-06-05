@@ -59,6 +59,7 @@ defmodule Assay.Config do
   @optional_apps [
     {:erlex, :"Elixir.Erlex"},
     {:igniter, :"Elixir.Igniter"},
+    {:marcli, :"Elixir.Marcli"},
     {:rewrite, :"Elixir.Rewrite.Source"}
   ]
 
@@ -438,8 +439,6 @@ defmodule Assay.Config do
 
   defp normalize_selector(value), do: {:literal, literal_app(value)}
 
-  defp literal_app(value) when is_atom(value), do: value
-
   defp literal_app(value) when is_binary(value) do
     if String.contains?(value, "/") or String.contains?(value, "\\") do
       value
@@ -447,8 +446,6 @@ defmodule Assay.Config do
       String.to_atom(value)
     end
   end
-
-  defp literal_app(value) when is_list(value), do: List.to_string(value)
 
   defp literal_app(value), do: value
 

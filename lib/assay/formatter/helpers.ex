@@ -162,6 +162,7 @@ defmodule Assay.Formatter.Helpers do
       lines =
         keys
         |> Enum.flat_map(fn key ->
+          # credo:disable-for-lines:15 Credo.Check.Refactor.Nesting
           case {Map.get(expected_map, key), Map.get(actual_map, key)} do
             {nil, nil} ->
               []
@@ -292,6 +293,7 @@ defmodule Assay.Formatter.Helpers do
 
   defp map_entries_by_key(text) do
     with {:ok, entries} <- map_entry_list(text) do
+      # credo:disable-for-lines:17 Credo.Check.Refactor.Nesting
       Enum.reduce_while(entries, {:ok, %{}, MapSet.new(), []}, fn entry,
                                                                   {:ok, map, order_set,
                                                                    order_list} ->
@@ -598,6 +600,7 @@ defmodule Assay.Formatter.Helpers do
 
   defp take_struct(binary) do
     with {:ok, module, rest} <- take_module(binary, "") do
+      # credo:disable-for-lines:11 Credo.Check.Refactor.Nesting
       case rest do
         <<"{", after_open::binary>> ->
           case skip_braces(after_open, 1) do
@@ -1131,7 +1134,7 @@ defmodule Assay.Formatter.Helpers do
 
       String.starts_with?(after_leading, close) ->
         close_size = byte_size(close)
-        <<_::binary-size(close_size), remaining::binary>> = after_leading
+        <<_::binary-size(^close_size), remaining::binary>> = after_leading
         {next_chunk, final} = take_needed_closers(remaining, rest)
         {leading <> close <> next_chunk, final}
 
