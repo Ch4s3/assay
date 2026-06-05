@@ -613,9 +613,10 @@ defmodule Assay.Formatter.Suggestions do
 
   defp analyze_source_for_patterns(path, line, _column) do
     with true <- File.regular?(path),
-         {:ok, contents} <- File.read(path) do
-      lines = String.split(contents, "\n", trim: false)
-      target_line_num = line || 1
+         {:ok, contents} <- File.read(path),
+         lines = String.split(contents, "\n", trim: false),
+         target_line_num = line || 1,
+         true <- target_line_num <= length(lines) do
       target_line = Enum.at(lines, target_line_num - 1)
 
       # Get function context (find the function definition containing this line)
