@@ -1026,6 +1026,8 @@ defmodule Assay.FormatterTest do
       assert clean =~ "lib/foo.ex"
       assert clean =~ "dialyzer_ignore.exs"
     end
+  end
+
   test "formatter does not crash when warning line is beyond end of file (text format)",
        %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "lib/short.ex")
