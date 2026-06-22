@@ -140,6 +140,7 @@ mix assay
 mix assay --print-config
 mix assay --format github --format sarif
 mix assay --no-compile          # skip compilation (project must already be compiled)
+mix assay --quiet               # suppress header, ignore logs, summary, and exit message
 ```
 
 Exit codes: `0` (clean), `1` (warnings), `2` (error).

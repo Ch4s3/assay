@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `--quiet` flag for `mix assay` to suppress informational output (header,
+  ignore logs, summary, and the warnings exit message). Formatted warning
+  output and exit codes are unchanged.
+
 ## [0.6.1] - 2026-06-05
 
 ### Fixed
