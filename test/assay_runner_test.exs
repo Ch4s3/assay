@@ -16,6 +16,8 @@ defmodule Assay.RunnerTest do
       Application.delete_env(:assay, :dialyzer_module)
       Application.delete_env(:assay, :dialyzer_runner_module)
       Application.delete_env(:assay, :dialyzer_stub_warnings)
+      Application.delete_env(:assay, :os_type_override)
+      Application.delete_env(:assay, :file_descriptor_limit_override)
     end)
 
     :ok
@@ -234,6 +236,39 @@ defmodule Assay.RunnerTest do
     assert_raise Mix.Error, fn ->
       Runner.analyze(config)
     end
+  end
+
+  test "analyze explains the ulimit fix when an MD5 failure hits macOS", %{tmp_dir: tmp_dir} do
+    Application.put_env(:assay, :dialyzer_runner_module, __MODULE__.Md5FailureDialyzerStub)
+    Application.put_env(:assay, :os_type_override, {:unix, :darwin})
+    Application.put_env(:assay, :file_descriptor_limit_override, 256)
+
+    config = failing_config_fixture(tmp_dir)
+
+    error =
+      assert_raise Assay.FileDescriptorLimitError, fn ->
+        Runner.analyze(config)
+      end
+
+    message = Exception.message(error)
+    assert message =~ "ulimit -n 65536"
+    assert message =~ "currently 256"
+    assert message =~ "Elixir.Foo.beam"
+  end
+
+  test "analyze leaves the MD5 failure untouched off macOS", %{tmp_dir: tmp_dir} do
+    Application.put_env(:assay, :dialyzer_runner_module, __MODULE__.Md5FailureDialyzerStub)
+    Application.put_env(:assay, :os_type_override, {:unix, :linux})
+
+    config = failing_config_fixture(tmp_dir)
+
+    error =
+      assert_raise Mix.Error, fn ->
+        Runner.analyze(config)
+      end
+
+    assert Exception.message(error) =~ "Could not compute MD5 for .beam"
+    refute Exception.message(error) =~ "ulimit"
   end
 
   test "run prints summary, handles ignore descriptions, and logs ignored warnings", %{
@@ -776,5 +811,21 @@ defmodule Assay.RunnerTest do
 
   defmodule FailingDialyzerStub do
     def run(_opts), do: throw({:dialyzer_error, ~c"failure"})
+  end
+
+  defmodule Md5FailureDialyzerStub do
+    @message ~c"Could not compute MD5 for .beam: /app/_build/dev/lib/foo/ebin/Elixir.Foo.beam\n"
+
+    def run(_opts), do: throw({:dialyzer_error, @message})
+  end
+
+  defp failing_config_fixture(tmp_dir) do
+    config_fixture(
+      project_root: tmp_dir,
+      cache_dir: Path.join(tmp_dir, "tmp/assay"),
+      plt_path: Path.join(tmp_dir, "tmp/assay/#{@plt_filename}"),
+      build_lib_path: Path.join(tmp_dir, "_build/dev/lib"),
+      ignore_file: nil
+    )
   end
 end
