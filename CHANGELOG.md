@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Dialyzer's opaque `Could not compute MD5 for .beam` failure is now translated
+  on macOS into `Assay.FileDescriptorLimitError`, which names the real cause
+  (the default 256 open file descriptor limit), reports the current soft limit,
+  and gives the `ulimit -n` command that fixes it. The daemon and MCP server
+  relay the same explanation to editors and agents.
+
 ## [0.6.1] - 2026-06-05
 
 ### Fixed

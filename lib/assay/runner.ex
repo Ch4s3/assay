@@ -3,7 +3,7 @@ defmodule Assay.Runner do
   Executes incremental Dialyzer runs directly via `:dialyzer.run/1`.
   """
 
-  alias Assay.{Config, Formatter, Ignore}
+  alias Assay.{Config, FileDescriptorLimitError, Formatter, Ignore}
 
   @type run_result :: :ok | :warnings
 
@@ -203,7 +203,12 @@ defmodule Assay.Runner do
     dialyzer_runner().run(opts)
   catch
     {:dialyzer_error, msg} ->
-      raise Mix.Error, IO.iodata_to_binary(msg)
+      message = IO.iodata_to_binary(msg)
+
+      case FileDescriptorLimitError.from_dialyzer_error(message) do
+        {:ok, error} -> raise error
+        :error -> raise Mix.Error, message
+      end
   end
 
   defp format_app(app, config) when is_atom(app) do
