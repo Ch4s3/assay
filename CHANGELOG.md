@@ -4,13 +4,14 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] - 2026-08-13
 
 ### Added
 
 - `--quiet` flag for `mix assay` to suppress informational output (header,
   ignore logs, summary, and the warnings exit message). Formatted warning
   output and exit codes are unchanged.
+
 ### Fixed
 
 - Dialyzer's opaque `Could not compute MD5 for .beam` failure is now translated
