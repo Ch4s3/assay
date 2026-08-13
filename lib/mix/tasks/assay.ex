@@ -13,6 +13,7 @@ defmodule Mix.Tasks.Assay do
   * `--dialyzer-flag FLAG` - Pass additional Dialyzer flags
   * `--ignore-file PATH` - Override ignore file path (default: `dialyzer_ignore.exs`)
   * `--explain-ignores` - Show detailed information about which warnings were ignored and which rules matched them
+  * `--quiet` - Suppress informational output (header, ignore logs, summary, and warnings exit message)
 
   ## Exit Codes
 
@@ -29,6 +30,7 @@ defmodule Mix.Tasks.Assay do
       mix assay --dialyzer-flag="--statistics"
       mix assay --ignore-file="custom_ignore.exs"
       mix assay --explain-ignores
+      mix assay --quiet --format json
   """
   use Mix.Task
 
@@ -43,7 +45,10 @@ defmodule Mix.Tasks.Assay do
         :ok
 
       :warnings ->
-        Mix.shell().info("Dialyzer reported warnings")
+        if !Keyword.get(opts, :quiet, false) do
+          Mix.shell().info("Dialyzer reported warnings")
+        end
+
         exit({:shutdown, 1})
     end
   end
@@ -60,7 +65,8 @@ defmodule Mix.Tasks.Assay do
           apps: :string,
           warning_apps: :string,
           ignore_file: :string,
-          explain_ignores: :boolean
+          explain_ignores: :boolean,
+          quiet: :boolean
         ],
         aliases: [f: :format]
       )
@@ -92,6 +98,7 @@ defmodule Mix.Tasks.Assay do
       |> Keyword.put(:formats, normalized_formats)
       |> Keyword.put(:no_compile, Keyword.get(opts, :no_compile, false))
       |> Keyword.put(:explain_ignores, Keyword.get(opts, :explain_ignores, false))
+      |> Keyword.put(:quiet, Keyword.get(opts, :quiet, false))
       |> maybe_put(:apps, apps_override)
       |> maybe_put(:warning_apps, warning_override)
       |> maybe_put(:dialyzer_flags, flag_overrides)

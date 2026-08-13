@@ -203,7 +203,7 @@ defmodule Assay.TestSupport.IOProxy do
     case :binary.match(buffer, "\n") do
       {pos, _len} ->
         len = pos + 1
-        <<line::binary-size(len), rest::binary>> = buffer
+        <<line::binary-size(^len), rest::binary>> = buffer
         {:reply, line, rest}
 
       :nomatch ->
@@ -215,7 +215,7 @@ defmodule Assay.TestSupport.IOProxy do
 
   defp fetch_chars(buffer, true, len) do
     if byte_size(buffer) >= len do
-      <<chunk::binary-size(len), rest::binary>> = buffer
+      <<chunk::binary-size(^len), rest::binary>> = buffer
       {:reply, chunk, rest}
     else
       {:reply, buffer, <<>>}
@@ -224,7 +224,7 @@ defmodule Assay.TestSupport.IOProxy do
 
   defp fetch_chars(buffer, false, len) do
     if byte_size(buffer) >= len do
-      <<chunk::binary-size(len), rest::binary>> = buffer
+      <<chunk::binary-size(^len), rest::binary>> = buffer
       {:reply, chunk, rest}
     else
       :pending

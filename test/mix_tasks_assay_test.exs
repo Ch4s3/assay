@@ -166,6 +166,39 @@ defmodule Mix.Tasks.AssayTest do
     assert Keyword.get(runner_opts, :no_compile) == false
   end
 
+  test "run forwards --quiet flag" do
+    Process.put(:runner_stub_status, :ok)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      Assay.run(["--quiet"])
+    end)
+
+    assert_received {:runner_called, _config, runner_opts}
+    assert Keyword.get(runner_opts, :quiet) == true
+  end
+
+  test "run defaults quiet to false when flag is omitted" do
+    Process.put(:runner_stub_status, :ok)
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      Assay.run([])
+    end)
+
+    assert_received {:runner_called, _config, runner_opts}
+    assert Keyword.get(runner_opts, :quiet) == false
+  end
+
+  test "run suppresses warnings exit message when --quiet is set" do
+    Process.put(:runner_stub_status, :warnings)
+
+    output =
+      capture_io(fn ->
+        assert catch_exit(Assay.run(["--quiet"])) == {:shutdown, 1}
+      end)
+
+    refute output =~ "Dialyzer reported warnings"
+  end
+
   test "assay.daemon task boots the daemon" do
     Application.put_env(:assay, :daemon_module, DaemonStub)
 
