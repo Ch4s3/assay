@@ -33,6 +33,19 @@ defmodule Assay.DaemonRaisingRunner do
   end
 end
 
+defmodule Assay.DaemonFileDescriptorLimitRunner do
+  @moduledoc false
+
+  def analyze(_config, _opts) do
+    raise %Assay.FileDescriptorLimitError{
+      beam_file: "/app/_build/dev/lib/foo/ebin/Elixir.Foo.beam",
+      soft_limit: 256,
+      original_message:
+        "Could not compute MD5 for .beam: /app/_build/dev/lib/foo/ebin/Elixir.Foo.beam"
+    }
+  end
+end
+
 defmodule Assay.DaemonOddIgnoreRunner do
   @moduledoc false
 
@@ -202,6 +215,17 @@ defmodule Assay.DaemonTest do
 
       assert reply["error"]["code"] == -32_000
       assert reply["error"]["message"] =~ "intentional failure"
+    end
+
+    test "relays the ulimit remediation to clients" do
+      state = Daemon.new(config: base_config(), runner: Assay.DaemonFileDescriptorLimitRunner)
+
+      request = %{"id" => 21, "method" => "assay/analyze", "params" => %{}}
+      {reply, _state, :continue} = Daemon.handle_rpc(request, state)
+
+      assert reply["error"]["code"] == -32_000
+      assert reply["error"]["message"] =~ "ulimit -n 65536"
+      assert reply["error"]["data"]["type"] == "Assay.FileDescriptorLimitError"
     end
 
     test "ignores non-request payloads" do

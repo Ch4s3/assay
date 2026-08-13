@@ -11,6 +11,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - `--quiet` flag for `mix assay` to suppress informational output (header,
   ignore logs, summary, and the warnings exit message). Formatted warning
   output and exit codes are unchanged.
+### Fixed
+
+- Dialyzer's opaque `Could not compute MD5 for .beam` failure is now translated
+  on macOS into `Assay.FileDescriptorLimitError`, which names the real cause
+  (the default 256 open file descriptor limit), reports the current soft limit,
+  and gives the `ulimit -n` command that fixes it. The daemon and MCP server
+  relay the same explanation to editors and agents.
 
 ## [0.6.1] - 2026-06-05
 
